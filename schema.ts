@@ -337,3 +337,20 @@ export function validateQuestions(data: unknown): QuestionsFile {
 
 	return parsed;
 }
+
+// Repair common LLM JSON mistakes (code fences, trailing commas, comments, smart quotes).
+// Only called as a fallback when JSON.parse() already failed.
+export function sanitizeLLMJSON(input: string): string {
+	let json = input.trim();
+
+	const fenceMatch = json.match(/^`{3,}(?:json|jsonc)?\s*\n([\s\S]*?)\n\s*`{3,}\s*$/i);
+	if (fenceMatch) {
+		json = fenceMatch[1];
+	}
+
+	json = json.replace(/^\s*\/\/.*$/gm, "");
+	json = json.replace(/,(\s*[}\]])/g, "$1");
+	json = json.replace(/\u201C|\u201D/g, '"');
+
+	return json.trim();
+}

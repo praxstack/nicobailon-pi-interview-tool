@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import { execSync, execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
 import { startInterviewServer, getActiveSessions, type ResponseItem } from "./server.js";
-import { validateQuestions, type QuestionsFile } from "./schema.js";
+import { validateQuestions, sanitizeLLMJSON, type QuestionsFile } from "./schema.js";
 import { loadSettings, type InterviewThemeSettings } from "./settings.js";
 
 interface GlimpseWindow {
@@ -185,13 +185,21 @@ function mergeThemeConfig(
 
 function loadQuestions(questionsInput: string, cwd: string): SavedQuestionsFile {
 	const trimmed = questionsInput.trimStart();
-	if (trimmed.startsWith("{")) {
+	const looksLikeInlineJSON =
+		trimmed.startsWith("{") ||
+		/^`{3,}(?:json|jsonc)?\s*\n?\s*\{/i.test(trimmed);
+
+	if (looksLikeInlineJSON) {
 		let data: unknown;
 		try {
 			data = JSON.parse(trimmed);
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			throw new Error(`Invalid inline JSON: ${message}`);
+		} catch {
+			try {
+				data = JSON.parse(sanitizeLLMJSON(trimmed));
+			} catch (repairErr) {
+				const message = repairErr instanceof Error ? repairErr.message : String(repairErr);
+				throw new Error(`Invalid inline JSON: ${message}`);
+			}
 		}
 		return validateQuestions(data);
 	}

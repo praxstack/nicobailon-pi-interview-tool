@@ -6,6 +6,11 @@
 - **Native macOS rendering**: When `glimpseui` is installed separately (`pi install npm:glimpseui`), interviews open in a native WKWebView window instead of a browser tab. Window lifecycle (submit, cancel, timeout) and queue toast session switching work correctly in the native environment. Falls back to browser on other platforms or when Glimpse is not detected.
 - **Inline JSON**: Pass questions as a JSON string directly to the `questions` parameter instead of writing a temp file.
 
+## [0.5.3] - 2026-03-15
+
+### Fixed
+- **LLM JSON repair**: When an LLM produces slightly malformed inline JSON (trailing commas, markdown code fences, single-line comments, curly smart quotes), `loadQuestions` now attempts a sanitized re-parse before failing. Valid JSON is unaffected — the repair only runs as a fallback when `JSON.parse` already failed. Saves agents a retry round-trip on common generation hiccups.
+
 ## [0.5.1] - 2026-02-15
 
 ### Added

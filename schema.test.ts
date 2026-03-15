@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { validateQuestions, getOptionLabel, isRichOption } from "./schema.js";
+import { validateQuestions, getOptionLabel, isRichOption, sanitizeLLMJSON } from "./schema.js";
 
 function valid(overrides: Record<string, unknown> = {}) {
 	return {
@@ -555,5 +555,123 @@ describe("isRichOption", () => {
 
 	it("returns true for object with label", () => {
 		expect(isRichOption({ label: "test" })).toBe(true);
+	});
+});
+
+describe("sanitizeLLMJSON", () => {
+	const VALID_JSON = '{"title":"Test","questions":[{"id":"q1","type":"text","question":"Name?"}]}';
+
+	it("passes valid JSON through unchanged", () => {
+		expect(JSON.parse(sanitizeLLMJSON(VALID_JSON))).toEqual(JSON.parse(VALID_JSON));
+	});
+
+	describe("code fences", () => {
+		it("strips ```json fences", () => {
+			const input = '```json\n{"a": 1}\n```';
+			expect(JSON.parse(sanitizeLLMJSON(input))).toEqual({ a: 1 });
+		});
+
+		it("strips bare ``` fences", () => {
+			const input = '```\n{"a": 1}\n```';
+			expect(JSON.parse(sanitizeLLMJSON(input))).toEqual({ a: 1 });
+		});
+
+		it("strips ```jsonc fences", () => {
+			const input = '```jsonc\n{"a": 1}\n```';
+			expect(JSON.parse(sanitizeLLMJSON(input))).toEqual({ a: 1 });
+		});
+
+		it("handles extra backticks", () => {
+			const input = '````json\n{"a": 1}\n````';
+			expect(JSON.parse(sanitizeLLMJSON(input))).toEqual({ a: 1 });
+		});
+
+		it("is case-insensitive for language tag", () => {
+			const input = '```JSON\n{"a": 1}\n```';
+			expect(JSON.parse(sanitizeLLMJSON(input))).toEqual({ a: 1 });
+		});
+	});
+
+	describe("trailing commas", () => {
+		it("removes trailing comma before }", () => {
+			const input = '{"a": 1, "b": 2,}';
+			expect(JSON.parse(sanitizeLLMJSON(input))).toEqual({ a: 1, b: 2 });
+		});
+
+		it("removes trailing comma before ]", () => {
+			const input = '{"items": ["x", "y",]}';
+			expect(JSON.parse(sanitizeLLMJSON(input))).toEqual({ items: ["x", "y"] });
+		});
+
+		it("handles trailing comma with whitespace/newlines", () => {
+			const input = '{\n  "a": 1,\n  "b": 2,\n}';
+			expect(JSON.parse(sanitizeLLMJSON(input))).toEqual({ a: 1, b: 2 });
+		});
+
+		it("handles nested trailing commas", () => {
+			const input = '{"outer": {"inner": 1,}, "arr": [1, 2,],}';
+			expect(JSON.parse(sanitizeLLMJSON(input))).toEqual({ outer: { inner: 1 }, arr: [1, 2] });
+		});
+	});
+
+	describe("comments", () => {
+		it("removes single-line comments on their own lines", () => {
+			const input = '{\n  // this is a comment\n  "a": 1\n}';
+			expect(JSON.parse(sanitizeLLMJSON(input))).toEqual({ a: 1 });
+		});
+
+		it("removes indented comments", () => {
+			const input = '{\n    // indented comment\n    "a": 1\n}';
+			expect(JSON.parse(sanitizeLLMJSON(input))).toEqual({ a: 1 });
+		});
+
+		it("does not strip // inside string values", () => {
+			const input = '{"url": "https://example.com"}';
+			expect(JSON.parse(sanitizeLLMJSON(input))).toEqual({ url: "https://example.com" });
+		});
+	});
+
+	describe("smart quotes", () => {
+		it("replaces left/right double curly quotes", () => {
+			const input = '{\u201Ca\u201D: 1}';
+			expect(JSON.parse(sanitizeLLMJSON(input))).toEqual({ a: 1 });
+		});
+	});
+
+	describe("combined repairs", () => {
+		it("handles code fences + trailing commas + comments", () => {
+			const input = '```json\n{\n  // Pick a framework\n  "title": "Setup",\n  "questions": [\n    {"id": "q1", "type": "text", "question": "Name?",},\n  ],\n}\n```';
+			const result = JSON.parse(sanitizeLLMJSON(input));
+			expect(result.title).toBe("Setup");
+			expect(result.questions[0].id).toBe("q1");
+		});
+
+		it("realistic LLM output with all quirks", () => {
+			const input = `\`\`\`json
+{
+  // Project configuration
+  "title": "Project Setup",
+  "description": "Review my suggestions",
+  "questions": [
+    {
+      "id": "framework",
+      "type": "single",
+      "question": "Which framework?",
+      "options": ["React", "Vue", "Svelte",],
+      "recommended": "React",
+    },
+    {
+      "id": "notes",
+      "type": "text",
+      "question": "Additional notes?",
+    },
+  ],
+}
+\`\`\``;
+			const result = JSON.parse(sanitizeLLMJSON(input));
+			expect(result.title).toBe("Project Setup");
+			expect(result.questions).toHaveLength(2);
+			expect(result.questions[0].options).toEqual(["React", "Vue", "Svelte"]);
+		});
 	});
 });
