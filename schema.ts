@@ -311,6 +311,9 @@ export function validateQuestions(data: unknown): QuestionsFile {
 			const optionLabels = q.options?.map(getOptionLabel) ?? [];
 
 			if (q.type === "single") {
+				if (Array.isArray(q.recommended) && q.recommended.length === 1) {
+					q.recommended = q.recommended[0];
+				}
 				if (typeof q.recommended !== "string") {
 					throw new Error(`Question "${q.id}": recommended must be string for single-select`);
 				}

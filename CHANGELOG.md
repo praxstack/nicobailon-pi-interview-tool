@@ -6,6 +6,11 @@
 - **Native macOS rendering**: When `glimpseui` is installed separately (`pi install npm:glimpseui`), interviews open in a native WKWebView window instead of a browser tab. Window lifecycle (submit, cancel, timeout) and queue toast session switching work correctly in the native environment. Falls back to browser on other platforms or when Glimpse is not detected.
 - **Inline JSON**: Pass questions as a JSON string directly to the `questions` parameter instead of writing a temp file.
 
+## [0.5.4] - 2026-03-16
+
+### Fixed
+- Single-select questions now unwrap `recommended: ["Option"]` to `"Option"` instead of throwing, matching the multi-select coercion that already wraps strings into arrays.
+
 ## [0.5.3] - 2026-03-15
 
 ### Fixed

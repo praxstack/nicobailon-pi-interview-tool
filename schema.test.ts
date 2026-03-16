@@ -242,6 +242,11 @@ describe("validateQuestions", () => {
 			expect(result.questions[0].recommended).toEqual(["X"]);
 		});
 
+		it("unwraps single-element array for single-select", () => {
+			const result = validateQuestions(valid({ recommended: ["A"] }));
+			expect(result.questions[0].recommended).toBe("A");
+		});
+
 		it("rejects recommended not in options for single", () => {
 			expect(() => validateQuestions(valid({ recommended: "C" }))).toThrow(
 				'recommended "C" not in options'
