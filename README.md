@@ -63,7 +63,7 @@ Restart pi to load the extension.
 
 **Timeout behavior:** The countdown (visible in corner) resets on any activity - typing, clicking, or mouse movement. When it expires, an overlay appears giving the user a chance to continue. Progress is never lost thanks to localStorage auto-save.
 
-**Multi-agent behavior:** When multiple agents run interviews simultaneously, only the first auto-opens the window. Subsequent interviews are queued and shown as a URL in the tool output, preventing focus stealing. Active interviews also surface a top-right toast with a dropdown to open queued sessions. A session status bar at the top of each form shows the project path, git branch, and session ID for easy identification.
+**Multi-agent behavior:** When multiple agents run interviews simultaneously, only the first auto-opens the window. Subsequent interviews are queued and shown as a URL in the tool output, preventing focus stealing. When you submit the active interview, the window automatically redirects to the next queued interview. Active interviews also surface a top-right toast with a dropdown to open queued sessions. A session status bar at the top of each form shows the project path, git branch, and session ID for easy identification.
 
 ## Usage
 

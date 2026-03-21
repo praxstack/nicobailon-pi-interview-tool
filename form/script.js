@@ -2405,13 +2405,21 @@
         body: JSON.stringify({ token: sessionToken, ...payload }),
       });
 
-      const result = await response.json().catch(() => ({ ok: false, error: "Invalid server response" }));
+      let submitResult;
+      try {
+        submitResult = await response.json();
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        showGlobalError(`Invalid server response: ${message}`);
+        submitBtn.disabled = false;
+        return;
+      }
 
-      if (!response.ok || !result.ok) {
-        if (result.field) {
-          setFieldError(result.field, result.error || "Invalid input");
+      if (!response.ok || !submitResult.ok) {
+        if (submitResult.field) {
+          setFieldError(submitResult.field, submitResult.error || "Invalid input");
         } else {
-          showGlobalError(result.error || "Submission failed.");
+          showGlobalError(submitResult.error || "Submission failed.");
         }
         submitBtn.disabled = false;
         return;
@@ -2427,6 +2435,12 @@
       stopHeartbeat();
       stopQueuePolling();
       session.ended = true;
+
+      if (submitResult.nextUrl) {
+        window.location.href = submitResult.nextUrl;
+        return;
+      }
+
       successOverlay.classList.remove("hidden");
       setTimeout(() => {
         closeWindow();

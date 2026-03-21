@@ -303,8 +303,9 @@ async function parseJSONBody(req: IncomingMessage): Promise<unknown> {
 		req.on("end", () => {
 			try {
 				resolve(JSON.parse(body));
-			} catch {
-				reject(new Error("Invalid JSON"));
+			} catch (err) {
+				const message = err instanceof Error ? err.message : String(err);
+				reject(new Error(`Invalid JSON: ${message}`));
 			}
 		});
 
@@ -807,6 +808,7 @@ export async function startInterviewServer(
 	let browserConnected = false;
 	let lastHeartbeatAt = Date.now();
 	let watchdog: NodeJS.Timeout | null = null;
+	let sessionKeepAlive: NodeJS.Timeout | null = null;
 	let completed = false;
 
 	const stopWatchdog = () => {
@@ -816,10 +818,18 @@ export async function startInterviewServer(
 		}
 	};
 
+	const stopSessionKeepAlive = () => {
+		if (sessionKeepAlive) {
+			clearInterval(sessionKeepAlive);
+			sessionKeepAlive = null;
+		}
+	};
+
 	const markCompleted = () => {
 		if (completed) return false;
 		completed = true;
 		stopWatchdog();
+		stopSessionKeepAlive();
 		return true;
 	};
 
@@ -838,6 +848,20 @@ export async function startInterviewServer(
 			const method = req.method || "GET";
 			const url = new URL(req.url || "/", `http://${req.headers.host || "127.0.0.1"}`);
 			log(verbose, `${method} ${url.pathname}`);
+
+			const parseBodyOrRespond = async (): Promise<unknown | null> => {
+				try {
+					return await parseJSONBody(req);
+				} catch (err) {
+					if (err instanceof BodyTooLargeError) {
+						sendJson(res, err.statusCode, { ok: false, error: err.message });
+						return null;
+					}
+					const message = err instanceof Error ? err.message : String(err);
+					sendJson(res, 400, { ok: false, error: message });
+					return null;
+				}
+			};
 
 			if (method === "GET" && url.pathname === "/") {
 				if (!validateTokenQuery(url, sessionToken, res)) return;
@@ -978,11 +1002,8 @@ export async function startInterviewServer(
 			}
 
 			if (method === "POST" && url.pathname === "/heartbeat") {
-				const body = await parseJSONBody(req).catch(() => null);
-				if (!body) {
-					sendJson(res, 400, { ok: false, error: "Invalid body" });
-					return;
-				}
+				const body = await parseBodyOrRespond();
+				if (!body) return;
 				if (!validateTokenBody(body, sessionToken, res)) return;
 				touchHeartbeat();
 				sendJson(res, 200, { ok: true });
@@ -990,14 +1011,7 @@ export async function startInterviewServer(
 			}
 
 			if (method === "POST" && url.pathname === "/cancel") {
-				const body = await parseJSONBody(req).catch((err) => {
-					if (err instanceof BodyTooLargeError) {
-						sendJson(res, err.statusCode, { ok: false, error: err.message });
-						return null;
-					}
-					sendJson(res, 400, { ok: false, error: err.message });
-					return null;
-				});
+				const body = await parseBodyOrRespond();
 				if (!body) return;
 				if (!validateTokenBody(body, sessionToken, res)) return;
 				if (completed) {
@@ -1020,14 +1034,7 @@ export async function startInterviewServer(
 			}
 
 			if (method === "POST" && url.pathname === "/submit") {
-				const body = await parseJSONBody(req).catch((err) => {
-					if (err instanceof BodyTooLargeError) {
-						sendJson(res, err.statusCode, { ok: false, error: err.message });
-						return null;
-					}
-					sendJson(res, 400, { ok: false, error: err.message });
-					return null;
-				});
+				const body = await parseBodyOrRespond();
 				if (!body) return;
 				if (!validateTokenBody(body, sessionToken, res)) return;
 				if (completed) {
@@ -1143,20 +1150,22 @@ export async function startInterviewServer(
 
 				markCompleted();
 				unregisterSession(sessionId);
-				sendJson(res, 200, { ok: true });
+				const nextSession = getActiveSessions()
+					.filter((s) => s.id !== sessionId)
+					.sort((a, b) => {
+						if (a.startedAt !== b.startedAt) {
+							return a.startedAt - b.startedAt;
+						}
+						return a.id.localeCompare(b.id);
+					})[0];
+				const nextUrl = nextSession ? nextSession.url : null;
+				sendJson(res, 200, { ok: true, nextUrl });
 				setImmediate(() => callbacks.onSubmit(responses));
 				return;
 			}
 
 			if (method === "POST" && url.pathname === "/save") {
-				const body = await parseJSONBody(req).catch((err) => {
-					if (err instanceof BodyTooLargeError) {
-						sendJson(res, err.statusCode, { ok: false, error: err.message });
-						return null;
-					}
-					sendJson(res, 400, { ok: false, error: err.message });
-					return null;
-				});
+				const body = await parseBodyOrRespond();
 				if (!body) return;
 				if (!validateTokenBody(body, sessionToken, res)) return;
 				// Note: don't check `completed` - allow save after submit
@@ -1307,6 +1316,11 @@ export async function startInterviewServer(
 				lastSeen: now,
 			};
 			registerSession(sessionEntry);
+			const keepAliveEntry = sessionEntry;
+			sessionKeepAlive = setInterval(() => {
+				if (completed) return;
+				touchSession(keepAliveEntry);
+			}, 10000);
 			if (!watchdog) {
 				watchdog = setInterval(() => {
 					if (completed || !browserConnected) return;

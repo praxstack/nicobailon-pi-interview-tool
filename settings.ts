@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir } from "node:os";
 
@@ -22,10 +22,19 @@ export interface InterviewSettings {
 }
 
 export function loadSettings(): InterviewSettings {
-	try {
-		const data = JSON.parse(readFileSync(SETTINGS_PATH, "utf-8"));
-		return (data.interview as InterviewSettings) ?? {};
-	} catch {
+	if (!existsSync(SETTINGS_PATH)) {
 		return {};
 	}
+
+	const parsed = JSON.parse(readFileSync(SETTINGS_PATH, "utf-8"));
+	if (typeof parsed !== "object" || parsed === null) {
+		return {};
+	}
+
+	const interview = (parsed as Record<string, unknown>).interview;
+	if (typeof interview !== "object" || interview === null) {
+		return {};
+	}
+
+	return interview as InterviewSettings;
 }

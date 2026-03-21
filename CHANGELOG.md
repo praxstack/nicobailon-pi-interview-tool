@@ -2,9 +2,18 @@
 
 ## [Unreleased]
 
+## [0.5.5] - 2026-03-21
+
 ### Added
 - **Native macOS rendering**: When `glimpseui` is installed separately (`pi install npm:glimpseui`), interviews open in a native WKWebView window instead of a browser tab. Window lifecycle (submit, cancel, timeout) and queue toast session switching work correctly in the native environment. Falls back to browser on other platforms or when Glimpse is not detected.
 - **Inline JSON**: Pass questions as a JSON string directly to the `questions` parameter instead of writing a temp file.
+
+### Fixed
+- **Queued interview handoff**: When submitting an interview with queued sessions waiting, the Glimpse/browser window now redirects to the next queued interview instead of closing. The submit response includes the oldest queued session's URL, and the client navigates to it directly.
+- **Queue ordering stability**: Next-session handoff now uses a deterministic tie-breaker (`startedAt`, then `session id`) so simultaneous starts cannot produce ambiguous promotion order.
+- **Settings parse failures are now visible**: Invalid `~/.pi/agent/settings.json` JSON no longer silently falls back to defaults; the tool now throws with parse context so config errors are debuggable.
+- **Submit response parsing**: Client submit flow now preserves JSON parse failures from `/submit` instead of replacing them with a generic fallback object.
+- **Queued session staleness**: Queued interview sessions now stay alive in the sessions registry via a server-side keep-alive interval, so queued sessions without browser heartbeats no longer go stale.
 
 ## [0.5.4] - 2026-03-16
 

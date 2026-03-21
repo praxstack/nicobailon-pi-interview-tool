@@ -242,8 +242,9 @@ function loadSavedInterview(html: string, filePath: string): SavedQuestionsFile 
 	let data: unknown;
 	try {
 		data = JSON.parse(match[1]);
-	} catch {
-		throw new Error("Invalid saved interview: malformed JSON");
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		throw new Error(`Invalid saved interview: malformed JSON (${message})`);
 	}
 
 	const raw = data as Record<string, unknown>;
@@ -412,7 +413,6 @@ export default function (pi: ExtensionAPI) {
 			let glimpseWin: GlimpseWindow | null = null;
 			let resolved = false;
 			let url = "";
-
 			const cleanup = () => {
 				if (server) {
 					server.close();
