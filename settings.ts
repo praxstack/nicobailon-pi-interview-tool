@@ -19,6 +19,7 @@ export interface InterviewSettings {
 	theme?: InterviewThemeSettings;
 	snapshotDir?: string;      // Default: ~/.pi/interview-snapshots/
 	autoSaveOnSubmit?: boolean; // Default: true
+	generateModel?: string;    // e.g., "anthropic/claude-haiku-4-5"
 }
 
 export function loadSettings(): InterviewSettings {

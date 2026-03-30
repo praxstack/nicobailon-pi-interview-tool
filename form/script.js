@@ -1232,7 +1232,8 @@
     
     if (event.key === 'Tab') {
       const inAttachArea = document.activeElement?.closest('.attach-inline');
-      if (inAttachArea) return;
+      const inGenerateArea = document.activeElement?.closest('.generate-more');
+      if (inAttachArea || inGenerateArea) return;
       
       event.preventDefault();
       
@@ -1285,6 +1286,9 @@
           return;
         }
         if (document.activeElement?.closest('.attach-inline')) {
+          return;
+        }
+        if (document.activeElement?.closest('.generate-more')) {
           return;
         }
         event.preventDefault();
@@ -1386,6 +1390,210 @@
         }
       }, 100);
     }
+  }
+
+  function createGenerateMoreUI(question, list) {
+    if (!data.canGenerate) return null;
+
+    const container = document.createElement("div");
+    container.className = "generate-more";
+
+    const btnRow = document.createElement("div");
+    btnRow.className = "generate-more-row";
+
+    const addBtn = document.createElement("button");
+    addBtn.type = "button";
+    addBtn.className = "generate-more-btn";
+    addBtn.innerHTML = '<span class="generate-more-icon">✦</span> Generate more';
+
+    const reviewBtn = document.createElement("button");
+    reviewBtn.type = "button";
+    reviewBtn.className = "generate-more-btn";
+    reviewBtn.innerHTML = '<span class="generate-more-icon">↻</span> Review options';
+
+    const status = document.createElement("div");
+    status.className = "generate-more-status hidden";
+
+    btnRow.appendChild(addBtn);
+    btnRow.appendChild(reviewBtn);
+    container.appendChild(btnRow);
+    container.appendChild(status);
+
+    let generating = false;
+    let abortController = null;
+    let statusTimer = null;
+
+    function clearStatus() {
+      if (statusTimer !== null) {
+        clearTimeout(statusTimer);
+        statusTimer = null;
+      }
+      status.classList.add("hidden");
+      status.classList.remove("error");
+    }
+
+    function showStatus(message, timeoutMs, isError = false) {
+      if (statusTimer !== null) {
+        clearTimeout(statusTimer);
+        statusTimer = null;
+      }
+
+      status.textContent = message;
+      status.classList.remove("hidden");
+      status.classList.toggle("error", isError);
+
+      if (timeoutMs == null) {
+        return;
+      }
+
+      statusTimer = setTimeout(() => {
+        status.classList.add("hidden");
+        statusTimer = null;
+      }, timeoutMs);
+    }
+
+    function getExistingOptions() {
+      const inputs = list.querySelectorAll(
+        'input[name="' + escapeSelector(question.id) + '"]'
+      );
+      return Array.from(inputs)
+        .map((input) => input.value)
+        .filter((v) => v && v !== "__other__");
+    }
+
+    async function runGenerate(btn, mode) {
+      if (generating) {
+        if (abortController) abortController.abort();
+        return;
+      }
+
+      generating = true;
+      const icon = btn.querySelector(".generate-more-icon").textContent;
+      btn.innerHTML = '<span class="generate-more-icon">' + icon + '</span> Cancel';
+      btn.classList.add("loading");
+      addBtn.disabled = true;
+      reviewBtn.disabled = true;
+      btn.disabled = false;
+      clearStatus();
+
+      abortController = new AbortController();
+      const existingOptions = getExistingOptions();
+
+      try {
+        const response = await fetch("/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            token: sessionToken,
+            questionId: question.id,
+            existingOptions,
+            mode,
+          }),
+          signal: abortController.signal,
+        });
+
+        const result = await response.json();
+        if (!result.ok) throw new Error(result.error || "Generation failed");
+        if (!Array.isArray(result.options) || result.options.length === 0) {
+          throw new Error("No options generated");
+        }
+
+        if (mode === "review") {
+          const seen = new Set();
+          const revisedOptions = result.options.filter((option) => {
+            const key = option.toLowerCase().trim();
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+          if (revisedOptions.length === 0) {
+            throw new Error("No valid options returned for review");
+          }
+
+          list
+            .querySelectorAll('.option-item:not(.option-other):not(.done-item)')
+            .forEach((el) => el.remove());
+          revisedOptions.forEach((optionText, i) => {
+            const optionEl = createGeneratedOption(question, optionText, i);
+            list.insertBefore(optionEl, container);
+          });
+          if (question.type === "multi") updateDoneState(question.id);
+          debounceSave();
+          showStatus(
+            revisedOptions.length + " option" + (revisedOptions.length > 1 ? "s" : "") + " revised",
+            2500,
+          );
+        } else {
+          const existingSet = new Set(existingOptions.map((o) => o.toLowerCase().trim()));
+          const seen = new Set();
+          const newOptions = result.options.filter((o) => {
+            const key = o.toLowerCase().trim();
+            if (existingSet.has(key) || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+          });
+
+          if (newOptions.length === 0) {
+            showStatus("All generated options already exist", 3000);
+          } else {
+            newOptions.forEach((optionText, i) => {
+              const optionEl = createGeneratedOption(question, optionText, i);
+              list.insertBefore(optionEl, container);
+            });
+            showStatus(
+              newOptions.length + " option" + (newOptions.length > 1 ? "s" : "") + " added",
+              2500,
+            );
+          }
+        }
+        refreshCountdown();
+      } catch (err) {
+        if (!(err instanceof Error && err.name === "AbortError")) {
+          showStatus(err instanceof Error ? err.message : "Generation failed", null, true);
+        }
+      } finally {
+        generating = false;
+        addBtn.innerHTML = '<span class="generate-more-icon">✦</span> Generate more';
+        reviewBtn.innerHTML = '<span class="generate-more-icon">↻</span> Review options';
+        addBtn.classList.remove("loading");
+        reviewBtn.classList.remove("loading");
+        addBtn.disabled = false;
+        reviewBtn.disabled = false;
+        abortController = null;
+      }
+    }
+
+    addBtn.addEventListener("click", () => runGenerate(addBtn, "add"));
+    reviewBtn.addEventListener("click", () => runGenerate(reviewBtn, "review"));
+
+    return container;
+  }
+
+  function createGeneratedOption(question, optionText, animIndex) {
+    const label = document.createElement("label");
+    label.className = "option-item generated";
+    label.style.animationDelay = (animIndex * 0.08) + "s";
+
+    const input = document.createElement("input");
+    input.type = question.type === "single" ? "radio" : "checkbox";
+    input.name = question.id;
+    input.value = optionText;
+    input.setAttribute("tabindex", "-1");
+
+    input.addEventListener("change", () => {
+      debounceSave();
+      if (question.type === "multi") {
+        updateDoneState(question.id);
+      }
+    });
+
+    const text = document.createElement("span");
+    text.textContent = optionText;
+
+    label.appendChild(input);
+    label.appendChild(text);
+
+    return label;
   }
 
   function createQuestionCard(question, index, badgeNumber) {
@@ -1523,6 +1731,8 @@
         list.appendChild(label);
       });
 
+      const generateMoreEl = createGenerateMoreUI(question, list);
+      if (generateMoreEl) list.appendChild(generateMoreEl);
 
       const otherLabel = document.createElement("label");
       otherLabel.className = "option-item option-other";

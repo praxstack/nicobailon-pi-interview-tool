@@ -1,5 +1,5 @@
 import { Type } from "@sinclair/typebox";
-import { StringEnum } from "@mariozechner/pi-ai";
+import { StringEnum, complete, type Api, type AssistantMessage, type Model } from "@mariozechner/pi-ai";
 import { Text } from "@mariozechner/pi-tui";
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
 import * as path from "node:path";
@@ -8,7 +8,7 @@ import * as fs from "node:fs";
 import { randomUUID } from "node:crypto";
 import { execSync, execFileSync } from "node:child_process";
 import { createRequire } from "node:module";
-import { startInterviewServer, getActiveSessions, type ResponseItem } from "./server.js";
+import { startInterviewServer, getActiveSessions, type ResponseItem, type InterviewServerCallbacks } from "./server.js";
 import { validateQuestions, sanitizeLLMJSON, type QuestionsFile } from "./schema.js";
 import { loadSettings, type InterviewThemeSettings } from "./settings.js";
 
@@ -232,6 +232,163 @@ function loadQuestions(questionsInput: string, cwd: string): SavedQuestionsFile 
 	return validateQuestions(data);
 }
 
+interface GenerateModelCandidate {
+	provider: string;
+	id: string;
+}
+
+const PREFERRED_GENERATE_MODELS = [
+	"anthropic/claude-haiku-4-5",
+	"google/gemini-2.5-flash",
+	"openai/gpt-4.1-mini",
+];
+
+const GENERATE_OPTIONS_SYSTEM_PROMPT =
+	"You generate interview answer options. Return only a JSON array of strings. Do not include explanations or markdown.";
+
+function formatModelRef(model: GenerateModelCandidate): string {
+	return `${model.provider}/${model.id}`;
+}
+
+function findModelByRef<T extends GenerateModelCandidate>(models: T[], modelRef: string): T | null {
+	for (const model of models) {
+		if (formatModelRef(model) === modelRef) {
+			return model;
+		}
+	}
+	return null;
+}
+
+export function selectGenerateModels<T extends GenerateModelCandidate>(
+	configuredModel: T | null,
+	currentModel: T | null,
+	availableModels: T[],
+): { primary: T | null; fallback: T | null } {
+	if (configuredModel) {
+		if (!currentModel || formatModelRef(currentModel) === formatModelRef(configuredModel)) {
+			return { primary: configuredModel, fallback: null };
+		}
+		return { primary: configuredModel, fallback: currentModel };
+	}
+
+	if (currentModel) {
+		return { primary: currentModel, fallback: null };
+	}
+
+	for (const modelRef of PREFERRED_GENERATE_MODELS) {
+		const preferredModel = findModelByRef(availableModels, modelRef);
+		if (preferredModel) {
+			return { primary: preferredModel, fallback: null };
+		}
+	}
+
+	return { primary: availableModels[0] ?? null, fallback: null };
+}
+
+export function extractGenerateResponseText(
+	modelRef: string,
+	response: Pick<AssistantMessage, "content" | "stopReason" | "errorMessage">,
+): string {
+	if (response.stopReason === "aborted") {
+		throw new Error("Aborted");
+	}
+	if (response.stopReason === "error") {
+		throw new Error(response.errorMessage ? `${modelRef}: ${response.errorMessage}` : `${modelRef} failed`);
+	}
+
+	const text = response.content
+		.filter((part): part is { type: "text"; text: string } => part.type === "text")
+		.map((part) => part.text)
+		.join("")
+		.trim();
+	if (!text) {
+		throw new Error(`${modelRef} returned no text response`);
+	}
+	return text;
+}
+
+export function extractJSONArray(text: string): string {
+	const start = text.indexOf("[");
+	if (start === -1) return text;
+
+	let depth = 0;
+	let inString = false;
+	let escaping = false;
+
+	for (let i = start; i < text.length; i++) {
+		const char = text[i];
+
+		if (inString) {
+			if (escaping) {
+				escaping = false;
+				continue;
+			}
+			if (char === "\\") {
+				escaping = true;
+				continue;
+			}
+			if (char === '"') {
+				inString = false;
+			}
+			continue;
+		}
+
+		if (char === '"') {
+			inString = true;
+			continue;
+		}
+		if (char === "[") {
+			depth++;
+			continue;
+		}
+		if (char !== "]") {
+			continue;
+		}
+
+		depth--;
+		if (depth === 0) {
+			return text.slice(start, i + 1);
+		}
+	}
+
+	return text;
+}
+
+export function createGenerateContext(prompt: string) {
+	return {
+		systemPrompt: GENERATE_OPTIONS_SYSTEM_PROMPT,
+		messages: [{
+			role: "user" as const,
+			content: [{ type: "text" as const, text: prompt }],
+			timestamp: Date.now(),
+		}],
+	};
+}
+
+export function parseGeneratedOptions(text: string): string[] {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(extractJSONArray(text));
+	} catch (err) {
+		const detail = err instanceof Error ? err.message : String(err);
+		throw new Error(`Failed to parse generated options: ${detail}`);
+	}
+	if (!Array.isArray(parsed)) {
+		throw new Error("Expected array of options");
+	}
+
+	const options = parsed
+		.filter(
+			(item: unknown): item is string =>
+				typeof item === "string" && item.trim().length > 0,
+		)
+		.map((option: string) => option.trim());
+	if (options.length === 0) {
+		throw new Error("No valid options generated");
+	}
+	return options;
+}
+
 function loadSavedInterview(html: string, filePath: string): SavedQuestionsFile {
 	// Extract JSON from <script id="pi-interview-data">
 	const match = html.match(/<script[^>]+id=["']pi-interview-data["'][^>]*>([\s\S]*?)<\/script>/i);
@@ -395,6 +552,32 @@ export default function (pi: ExtensionAPI) {
 			const themeConfig = mergeThemeConfig(settings.theme, theme, ctx.cwd);
 			const questionsData = loadQuestions(questions, ctx.cwd);
 
+			let configuredGenerateModel: Model<Api> | null = null;
+			if (settings.generateModel) {
+				const slashIdx = settings.generateModel.indexOf("/");
+				if (slashIdx > 0) {
+					configuredGenerateModel = ctx.modelRegistry.find(
+						settings.generateModel.slice(0, slashIdx),
+						settings.generateModel.slice(slashIdx + 1),
+					);
+				}
+			}
+
+			let availableGenerateModels: Model<Api>[] = [];
+			if (!configuredGenerateModel && !ctx.model) {
+				try {
+					availableGenerateModels = ctx.modelRegistry.getAvailable();
+				} catch {
+					// Leave generation disabled when model discovery is unavailable.
+				}
+			}
+
+			const { primary: generateModel, fallback: fallbackGenerateModel } = selectGenerateModels(
+				configuredGenerateModel,
+				ctx.model ?? null,
+				availableGenerateModels,
+			);
+
 			// Expand ~ in snapshotDir if present
 			const snapshotDir = settings.snapshotDir
 				? expandHome(settings.snapshotDir)
@@ -469,6 +652,89 @@ export default function (pi: ExtensionAPI) {
 				};
 				signal?.addEventListener("abort", handleAbort, { once: true });
 
+				let onGenerate: InterviewServerCallbacks["onGenerate"];
+				if (generateModel) {
+					const generateOptions = async (model: Model<Api>, prompt: string, generateSignal: AbortSignal) => {
+						const modelRef = formatModelRef(model);
+						const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
+						if (!auth.ok) throw new Error(`${modelRef}: ${auth.error}`);
+						if (!auth.apiKey) throw new Error(`No API key for ${modelRef}`);
+
+						const response = await complete(
+							model,
+							createGenerateContext(prompt),
+							{ apiKey: auth.apiKey, headers: auth.headers, signal: generateSignal },
+						);
+
+						return parseGeneratedOptions(extractGenerateResponseText(modelRef, response));
+					};
+
+					onGenerate = async (questionId, existingOptions, generateSignal, mode) => {
+						const question = questionsData.questions.find((q) => q.id === questionId);
+						if (!question) throw new Error(`Unknown question: ${questionId}`);
+
+						const existingList = existingOptions.length > 0
+							? existingOptions.map((option) => `- ${option}`).join("\n")
+							: "(none)";
+
+						let prompt: string;
+						if (mode === "review") {
+							let recommended = "";
+							if (question.recommended) {
+								const value = Array.isArray(question.recommended)
+									? question.recommended.join(", ")
+									: question.recommended;
+								recommended = `\nRecommended: ${value}`;
+							}
+							prompt = [
+								"Review these options for the question below. Fix any issues: incorrect options, missing obvious choices, poor wording, redundancy.",
+								"Return ONLY a JSON array of the corrected option strings. Keep good options as-is, fix bad ones, add missing ones, remove bad ones.",
+								"",
+								questionsData.title ? `Interview: ${questionsData.title}` : null,
+								`Question: ${question.question}`,
+								question.context ? `Context: ${question.context}` : null,
+								recommended || null,
+								"",
+								"Current options:",
+								existingList,
+								"",
+								'Format: ["Option A", "Option B", "Option C"]',
+							].filter((line) => line !== null).join("\n");
+						} else {
+							prompt = [
+								"Generate 3 new, distinct options for this question.",
+								"Return ONLY a JSON array of short option strings. No explanation, no markdown.",
+								"",
+								`Question: ${question.question}`,
+								question.context ? `Context: ${question.context}` : null,
+								"",
+								"Existing options (do NOT repeat):",
+								existingList,
+								"",
+								'Format: ["Option A", "Option B", "Option C"]',
+							].filter((line) => line !== null).join("\n");
+						}
+
+						let options: string[];
+						try {
+							options = await generateOptions(generateModel, prompt, generateSignal);
+						} catch (err) {
+							if (!fallbackGenerateModel || generateSignal.aborted) {
+								throw err;
+							}
+							try {
+								options = await generateOptions(fallbackGenerateModel, prompt, generateSignal);
+							} catch (fallbackErr) {
+								const primaryMessage = err instanceof Error ? err.message : String(err);
+								const fallbackMessage = fallbackErr instanceof Error ? fallbackErr.message : String(fallbackErr);
+								throw new Error(`${primaryMessage}. Fallback failed: ${fallbackMessage}`);
+							}
+						}
+
+						return { options };
+					};
+				}
+
 				startInterviewServer(
 					{
 						questions: questionsData,
@@ -482,6 +748,7 @@ export default function (pi: ExtensionAPI) {
 						snapshotDir,
 						autoSaveOnSubmit: settings.autoSaveOnSubmit ?? true,
 						savedAnswers: questionsData.savedAnswers,
+						canGenerate: generateModel !== null,
 					},
 					{
 						onSubmit: (responses) => finish("completed", responses),
@@ -489,6 +756,7 @@ export default function (pi: ExtensionAPI) {
 							reason === "timeout"
 								? finish("timeout", partialResponses ?? [])
 								: finish("cancelled", partialResponses ?? [], reason),
+						onGenerate,
 					}
 				)
 					.then(async (handle) => {

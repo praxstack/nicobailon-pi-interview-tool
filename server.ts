@@ -196,11 +196,18 @@ export interface InterviewServerOptions {
 	snapshotDir?: string;
 	autoSaveOnSubmit?: boolean;
 	savedAnswers?: ResponseItem[];
+	canGenerate?: boolean;
 }
 
 export interface InterviewServerCallbacks {
 	onSubmit: (responses: ResponseItem[]) => void;
 	onCancel: (reason?: "timeout" | "user" | "stale", partialResponses?: ResponseItem[]) => void;
+	onGenerate?: (
+		questionId: string,
+		existingOptions: string[],
+		signal: AbortSignal,
+		mode: "add" | "review",
+	) => Promise<{ options: string[] }>;
 }
 
 export interface InterviewServerHandle {
@@ -882,6 +889,7 @@ export async function startInterviewServer(
 					},
 					savedAnswers: options.savedAnswers,
 					autoSaveOnSubmit: options.autoSaveOnSubmit ?? true,
+					canGenerate: options.canGenerate ?? false,
 				});
 				const html = TEMPLATE
 					.replace("<!-- __CDN_SCRIPTS__ -->", cdnScripts)
@@ -1280,6 +1288,68 @@ export async function startInterviewServer(
 					path: snapshotPath,
 					relativePath: normalizePath(snapshotPath),
 				});
+				return;
+			}
+
+			if (method === "POST" && url.pathname === "/generate") {
+				const body = await parseBodyOrRespond();
+				if (!body) return;
+				if (!validateTokenBody(body, sessionToken, res)) return;
+				if (completed) {
+					sendJson(res, 409, { ok: false, error: "Session closed" });
+					return;
+				}
+
+				if (!callbacks.onGenerate) {
+					sendJson(res, 501, { ok: false, error: "Generation not available" });
+					return;
+				}
+
+				const payload = body as {
+					questionId?: string;
+					existingOptions?: string[];
+					mode?: string;
+				};
+
+				if (typeof payload.questionId !== "string") {
+					sendJson(res, 400, { ok: false, error: "Missing questionId" });
+					return;
+				}
+
+				const question = questionById.get(payload.questionId);
+				if (!question || (question.type !== "single" && question.type !== "multi")) {
+					sendJson(res, 400, { ok: false, error: "Invalid question for generation" });
+					return;
+				}
+
+				const existingOptions = Array.isArray(payload.existingOptions)
+					? payload.existingOptions.filter((o): o is string => typeof o === "string")
+					: [];
+
+				const mode = payload.mode === "review" ? "review" : "add";
+
+				const controller = new AbortController();
+				res.on("close", () => {
+					if (!res.writableEnded) controller.abort();
+				});
+				touchHeartbeat();
+
+				try {
+					const result = await callbacks.onGenerate(
+						payload.questionId,
+						existingOptions,
+						controller.signal,
+						mode,
+					);
+					sendJson(res, 200, { ok: true, options: result.options });
+				} catch (err) {
+					if (controller.signal.aborted) {
+						sendJson(res, 409, { ok: false, error: "Request cancelled" });
+						return;
+					}
+					const message = err instanceof Error ? err.message : "Generation failed";
+					sendJson(res, 500, { ok: false, error: message });
+				}
 				return;
 			}
 

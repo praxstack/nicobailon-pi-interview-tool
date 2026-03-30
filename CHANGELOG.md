@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-03-30
+
+### Added
+- **Generate & review options**: Single and multi-select questions show two LLM-powered buttons: "✦ Generate more" appends new deduplicated choices, and "↻ Review options" validates and rewrites the existing options. Default model is the agent's current model, configurable via `generateModel` in interview settings.
+
+### Fixed
+- **Generate model fallback**: When an explicitly configured `generateModel` fails at request time, interview now surfaces the provider error and retries once with the current session model when it differs.
+- **Codex-compatible generation requests**: Generate/review requests now include a system prompt, so fallback to `openai-codex` session models works instead of failing with `{"detail":"Instructions are required"}`.
+
 ## [0.5.5] - 2026-03-21
 
 ### Added
