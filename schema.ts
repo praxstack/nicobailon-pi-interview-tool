@@ -1,15 +1,28 @@
-export interface CodeBlock {
-	code: string;
+export interface BaseContentBlock {
+	source: string;
 	lang?: string;
 	file?: string;
-	lines?: string;
-	highlights?: number[];
 	title?: string;
 }
 
+export interface MarkdownContentBlock extends BaseContentBlock {
+	lang: "md" | "markdown";
+	showSource?: boolean;
+	lines?: never;
+	highlights?: never;
+}
+
+export interface CodeContentBlock extends BaseContentBlock {
+	lines?: string;
+	highlights?: number[];
+	showSource?: never;
+}
+
+export type ContentBlock = MarkdownContentBlock | CodeContentBlock;
+
 export interface RichOption {
 	label: string;
-	code?: CodeBlock;
+	content?: ContentBlock;
 }
 
 export type OptionValue = string | RichOption;
@@ -44,7 +57,7 @@ export interface Question {
 	conviction?: "strong" | "slight";
 	weight?: "critical" | "minor";
 	context?: string;
-	codeBlock?: CodeBlock;
+	content?: ContentBlock;
 	media?: MediaBlock | MediaBlock[];
 }
 
@@ -127,34 +140,71 @@ const SCHEMA_EXAMPLE = `Expected format:
   ]
 }
 Valid types: single, multi, text, image, info
-Options: array of strings or objects with { label, code? }`;
+Options: array of strings or objects with { label, content? }`;
 
-function validateCodeBlock(block: unknown, context: string): CodeBlock {
+function isMarkdownLang(lang: unknown): lang is "md" | "markdown" {
+	if (typeof lang !== "string") return false;
+	const normalized = lang.trim().toLowerCase();
+	return normalized === "md" || normalized === "markdown";
+}
+
+function validateContentBlock(block: unknown, context: string): ContentBlock {
 	if (!block || typeof block !== "object") {
-		throw new Error(`${context}: codeBlock must be an object`);
+		throw new Error(`${context}: content must be an object`);
 	}
 	const b = block as Record<string, unknown>;
-	if (typeof b.code !== "string") {
-		throw new Error(`${context}: codeBlock.code must be a string`);
+	if (typeof b.source !== "string") {
+		throw new Error(`${context}: content.source must be a string`);
 	}
 	if (b.lang !== undefined && typeof b.lang !== "string") {
-		throw new Error(`${context}: codeBlock.lang must be a string`);
+		throw new Error(`${context}: content.lang must be a string`);
 	}
 	if (b.file !== undefined && typeof b.file !== "string") {
-		throw new Error(`${context}: codeBlock.file must be a string`);
+		throw new Error(`${context}: content.file must be a string`);
 	}
 	if (b.lines !== undefined && typeof b.lines !== "string") {
-		throw new Error(`${context}: codeBlock.lines must be a string`);
+		throw new Error(`${context}: content.lines must be a string`);
 	}
 	if (b.title !== undefined && typeof b.title !== "string") {
-		throw new Error(`${context}: codeBlock.title must be a string`);
+		throw new Error(`${context}: content.title must be a string`);
+	}
+	if (b.showSource !== undefined && typeof b.showSource !== "boolean") {
+		throw new Error(`${context}: content.showSource must be a boolean`);
 	}
 	if (b.highlights !== undefined) {
 		if (!Array.isArray(b.highlights) || b.highlights.some((h) => typeof h !== "number")) {
-			throw new Error(`${context}: codeBlock.highlights must be an array of numbers`);
+			throw new Error(`${context}: content.highlights must be an array of numbers`);
 		}
 	}
-	return b as unknown as CodeBlock;
+
+	if (isMarkdownLang(b.lang)) {
+		if (b.lines !== undefined) {
+			throw new Error(`${context}: content.lines is not allowed for markdown content`);
+		}
+		if (b.highlights !== undefined) {
+			throw new Error(`${context}: content.highlights is not allowed for markdown content`);
+		}
+		return {
+			source: b.source,
+			lang: b.lang.trim().toLowerCase() as "md" | "markdown",
+			file: b.file,
+			title: b.title,
+			showSource: b.showSource,
+		};
+	}
+
+	if (b.showSource !== undefined) {
+		throw new Error(`${context}: content.showSource is only valid when content.lang is "md" or "markdown"`);
+	}
+
+	return {
+		source: b.source,
+		lang: b.lang,
+		file: b.file,
+		title: b.title,
+		lines: b.lines,
+		highlights: b.highlights as number[] | undefined,
+	};
 }
 
 function validateOption(option: unknown, questionId: string, index: number): OptionValue {
@@ -169,9 +219,17 @@ function validateOption(option: unknown, questionId: string, index: number): Opt
 			);
 		}
 		if (o.code !== undefined) {
-			validateCodeBlock(o.code, `Question "${questionId}" option "${o.label}"`);
+			throw new Error(
+				`Question "${questionId}" option "${o.label}": legacy "code" is no longer supported; use "content"`
+			);
 		}
-		return option as RichOption;
+		if (o.content !== undefined) {
+			return {
+				label: o.label,
+				content: validateContentBlock(o.content, `Question "${questionId}" option "${o.label}"`),
+			};
+		}
+		return { label: o.label };
 	}
 	throw new Error(
 		`Question "${questionId}": option at index ${index} must be a string or object with label`
@@ -240,7 +298,7 @@ function validateBasicStructure(data: unknown): QuestionsFile {
 				throw new Error(`Question "${q.id}": options must be a non-empty array`);
 			}
 			for (let j = 0; j < q.options.length; j++) {
-				validateOption(q.options[j], q.id as string, j);
+				q.options[j] = validateOption(q.options[j], q.id as string, j);
 			}
 		}
 
@@ -249,7 +307,10 @@ function validateBasicStructure(data: unknown): QuestionsFile {
 		}
 
 		if (q.codeBlock !== undefined) {
-			validateCodeBlock(q.codeBlock, `Question "${q.id}"`);
+			throw new Error(`Question "${q.id}": legacy "codeBlock" is no longer supported; use "content"`);
+		}
+		if (q.content !== undefined) {
+			q.content = validateContentBlock(q.content, `Question "${q.id}"`);
 		}
 
 		if (q.conviction !== undefined) {

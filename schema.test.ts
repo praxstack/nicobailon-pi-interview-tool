@@ -203,10 +203,10 @@ describe("validateQuestions", () => {
 			);
 		});
 
-		it("accepts rich options with label and code", () => {
+		it("accepts rich options with label and content", () => {
 			const result = validateQuestions(valid({
 				options: [
-					{ label: "A", code: { code: "const a = 1;" } },
+					{ label: "A", content: { source: "const a = 1;", lang: "ts" } },
 					{ label: "B" },
 				],
 			}));
@@ -214,9 +214,15 @@ describe("validateQuestions", () => {
 		});
 
 		it("rejects rich option without label", () => {
-			expect(() => validateQuestions(valid({ options: [{ code: "x" }] }))).toThrow(
+			expect(() => validateQuestions(valid({ options: [{ content: { source: "x" } }] }))).toThrow(
 				'must have a "label" string'
 			);
+		});
+
+		it("rejects legacy rich option code field", () => {
+			expect(() => validateQuestions(valid({
+				options: [{ label: "A", code: { code: "x" } }],
+			}))).toThrow('legacy "code" is no longer supported; use "content"');
 		});
 
 		it("rejects non-string non-object option", () => {
@@ -465,37 +471,76 @@ describe("validateQuestions", () => {
 		});
 	});
 
-	describe("codeBlock", () => {
-		it("accepts valid codeBlock", () => {
+	describe("content", () => {
+		it("accepts code content", () => {
 			const result = validateQuestions(valid({
+				content: { source: "const x = 1;", lang: "ts" },
+			}));
+			expect(result.questions[0].content?.source).toBe("const x = 1;");
+		});
+
+		it("rejects legacy question codeBlock field", () => {
+			expect(() => validateQuestions(valid({
 				codeBlock: { code: "const x = 1;", lang: "ts" },
-			}));
-			expect(result.questions[0].codeBlock?.code).toBe("const x = 1;");
+			}))).toThrow('legacy "codeBlock" is no longer supported; use "content"');
 		});
 
-		it("rejects codeBlock without code", () => {
-			expect(() => validateQuestions(valid({ codeBlock: { lang: "ts" } }))).toThrow(
-				"codeBlock.code must be a string"
+		it("rejects content without source", () => {
+			expect(() => validateQuestions(valid({ content: { lang: "ts" } }))).toThrow(
+				"content.source must be a string"
 			);
 		});
 
-		it("rejects non-string codeBlock.lang", () => {
-			expect(() => validateQuestions(valid({ codeBlock: { code: "x", lang: 42 } }))).toThrow(
-				"codeBlock.lang must be a string"
+		it("rejects non-string content.lang", () => {
+			expect(() => validateQuestions(valid({ content: { source: "x", lang: 42 } }))).toThrow(
+				"content.lang must be a string"
 			);
 		});
 
-		it("accepts codeBlock with highlights", () => {
+		it("accepts code content with highlights", () => {
 			const result = validateQuestions(valid({
-				codeBlock: { code: "a\nb\nc", highlights: [1, 3] },
+				content: { source: "a\nb\nc", lang: "ts", highlights: [1, 3] },
 			}));
-			expect(result.questions[0].codeBlock?.highlights).toEqual([1, 3]);
+			expect(result.questions[0].content?.highlights).toEqual([1, 3]);
 		});
 
 		it("rejects non-number highlights", () => {
 			expect(() => validateQuestions(valid({
-				codeBlock: { code: "x", highlights: ["a"] },
+				content: { source: "x", lang: "ts", highlights: ["a"] },
 			}))).toThrow("highlights must be an array of numbers");
+		});
+
+		it("defaults markdown to preview by allowing showSource omission", () => {
+			const result = validateQuestions(valid({
+				content: { source: "# Heading", lang: "md" },
+			}));
+			expect(result.questions[0].content?.lang).toBe("md");
+			expect(result.questions[0].content?.showSource).toBeUndefined();
+		});
+
+		it("allows markdown showSource override", () => {
+			const result = validateQuestions(valid({
+				content: { source: "# Heading", lang: "markdown", showSource: true },
+			}));
+			expect(result.questions[0].content?.showSource).toBe(true);
+		});
+
+		it("rejects markdown content with lines", () => {
+			expect(() => validateQuestions(valid({
+				content: { source: "# Heading", lang: "md", lines: "1-3" },
+			}))).toThrow("content.lines is not allowed for markdown content");
+		});
+
+		it("rejects markdown content with highlights", () => {
+			expect(() => validateQuestions(valid({
+				content: { source: "# Heading", lang: "md", highlights: [1] },
+			}))).toThrow("content.highlights is not allowed for markdown content");
+		});
+
+		it("rejects showSource on non-markdown content", () => {
+			expect(() => validateQuestions(valid({
+				content: { source: "const x = 1", lang: "ts", showSource: true },
+			}))).toThrow('content.showSource is only valid when content.lang is "md" or "markdown"');
 		});
 	});
 
@@ -525,12 +570,12 @@ describe("validateQuestions", () => {
 				description: "Every feature",
 				questions: [{
 					id: "q1", type: "multi", question: "Pick?",
-					options: [{ label: "A", code: { code: "a()" } }, "B", "C"],
+					options: [{ label: "A", content: { source: "a()", lang: "ts" } }, "B", "C"],
 					recommended: ["A", "C"],
 					conviction: "strong",
 					weight: "critical",
 					context: "Choose wisely",
-					codeBlock: { code: "example()", lang: "ts" },
+					content: { source: "example()", lang: "ts" },
 					media: [
 						{ type: "table", table: { headers: ["X"], rows: [["1"]], highlights: [0] }, position: "side" },
 						{ type: "image", src: "/test.png", alt: "test", caption: "Figure 1" },
@@ -549,7 +594,7 @@ describe("getOptionLabel", () => {
 	});
 
 	it("returns label from rich option", () => {
-		expect(getOptionLabel({ label: "test", code: { code: "x" } })).toBe("test");
+		expect(getOptionLabel({ label: "test", content: { source: "x", lang: "ts" } })).toBe("test");
 	});
 });
 

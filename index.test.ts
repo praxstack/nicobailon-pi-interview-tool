@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import interviewExtension, {
 	createGenerateContext,
@@ -129,6 +130,26 @@ describe("loadSavedInterview", () => {
 		expect(answers[0]?.attachments).toEqual([join("/tmp/pi-interview-snapshot", "images/decision.png")]);
 		expect(answers[1]?.value).toBe("Use edge runtime");
 		expect(answers[2]?.value).toBe(join("/tmp/pi-interview-snapshot", "images/mock.png"));
+	});
+});
+
+describe("content rendering styles", () => {
+	it("wraps long lines in live interview code blocks", () => {
+		const styles = readFileSync("form/styles.css", "utf-8");
+		expect(styles).toMatch(/\.code-block pre \{[^}]*white-space: pre-wrap;[^}]*overflow-wrap: anywhere;[^}]*word-break: break-word;/s);
+		expect(styles).toMatch(/\.code-block code \{[^}]*white-space: inherit;[^}]*overflow-wrap: inherit;[^}]*word-break: inherit;/s);
+	});
+
+	it("wraps long lines in saved interview snapshots", () => {
+		const serverSource = readFileSync("server.ts", "utf-8");
+		expect(serverSource).toMatch(/\.saved-code \{[^}]*white-space: pre-wrap;[^}]*overflow-wrap: anywhere;[^}]*word-break: break-word;/s);
+	});
+
+	it("defaults markdown content to preview unless showSource is true", () => {
+		const clientSource = readFileSync("form/script.js", "utf-8");
+		const serverSource = readFileSync("server.ts", "utf-8");
+		expect(clientSource).toContain("const markdownPreview = isMarkdownLang(block.lang) && block.showSource !== true;");
+		expect(serverSource).toContain("const markdownPreview = isMarkdownLang(content.lang) && content.showSource !== true;");
 	});
 });
 

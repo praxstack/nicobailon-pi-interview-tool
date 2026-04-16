@@ -437,6 +437,155 @@ function escapeHtml(str: string): string {
 		.replace(/"/g, "&quot;");
 }
 
+function isMarkdownLang(lang: string | undefined): boolean {
+	if (!lang) return false;
+	const normalized = lang.trim().toLowerCase();
+	return normalized === "md" || normalized === "markdown";
+}
+
+function renderLightMarkdownHtml(text: string): string {
+	let html = escapeHtml(text);
+	html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+	html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
+	html = html.replace(/\n/g, "<br>");
+	html = html.replace(/\s(\d+\.)\s/g, "<br>$1 ");
+	return html;
+}
+
+function renderMarkdownPreviewHtml(markdown: string): string {
+	const lines = markdown.replace(/\r\n?/g, "\n").split("\n");
+	const html: string[] = [];
+	const paragraph: string[] = [];
+	let listType: "ul" | "ol" | null = null;
+	let inFence = false;
+	let fenceLang = "";
+	let fenceLines: string[] = [];
+
+	const flushParagraph = () => {
+		if (paragraph.length === 0) return;
+		html.push(`<p>${renderLightMarkdownHtml(paragraph.join(" "))}</p>`);
+		paragraph.length = 0;
+	};
+
+	const closeList = () => {
+		if (!listType) return;
+		html.push(listType === "ol" ? "</ol>" : "</ul>");
+		listType = null;
+	};
+
+	for (const rawLine of lines) {
+		const line = rawLine ?? "";
+
+		if (inFence) {
+			if (/^```/.test(line.trim())) {
+				html.push(`<pre class="markdown-fence"><code${fenceLang ? ` data-lang="${escapeHtml(fenceLang)}"` : ""}>${escapeHtml(fenceLines.join("\n"))}</code></pre>`);
+				inFence = false;
+				fenceLang = "";
+				fenceLines = [];
+			} else {
+				fenceLines.push(line);
+			}
+			continue;
+		}
+
+		const fenceStart = line.match(/^```\s*([^\s`]*)\s*$/);
+		if (fenceStart) {
+			flushParagraph();
+			closeList();
+			inFence = true;
+			fenceLang = fenceStart[1] || "";
+			fenceLines = [];
+			continue;
+		}
+
+		if (!line.trim()) {
+			flushParagraph();
+			closeList();
+			continue;
+		}
+
+		const headingMatch = line.match(/^\s{0,3}(#{1,6})\s+(.+)$/);
+		if (headingMatch) {
+			flushParagraph();
+			closeList();
+			const level = headingMatch[1].length;
+			html.push(`<h${level}>${renderLightMarkdownHtml(headingMatch[2].trim())}</h${level}>`);
+			continue;
+		}
+
+		const quoteMatch = line.match(/^>\s?(.*)$/);
+		if (quoteMatch) {
+			flushParagraph();
+			closeList();
+			html.push(`<blockquote><p>${renderLightMarkdownHtml(quoteMatch[1])}</p></blockquote>`);
+			continue;
+		}
+
+		const orderedMatch = line.match(/^\s*\d+\.\s+(.+)$/);
+		if (orderedMatch) {
+			flushParagraph();
+			if (listType !== "ol") {
+				closeList();
+				html.push("<ol>");
+				listType = "ol";
+			}
+			html.push(`<li>${renderLightMarkdownHtml(orderedMatch[1])}</li>`);
+			continue;
+		}
+
+		const unorderedMatch = line.match(/^\s*[-*]\s+(.+)$/);
+		if (unorderedMatch) {
+			flushParagraph();
+			if (listType !== "ul") {
+				closeList();
+				html.push("<ul>");
+				listType = "ul";
+			}
+			html.push(`<li>${renderLightMarkdownHtml(unorderedMatch[1])}</li>`);
+			continue;
+		}
+
+		closeList();
+		paragraph.push(line.trim());
+	}
+
+	if (inFence) {
+		html.push(`<pre class="markdown-fence"><code${fenceLang ? ` data-lang="${escapeHtml(fenceLang)}"` : ""}>${escapeHtml(fenceLines.join("\n"))}</code></pre>`);
+	}
+
+	flushParagraph();
+	closeList();
+	return html.join("\n");
+}
+
+function renderContentBlockHtml(content: Question["content"] | undefined): string {
+	if (!content?.source) return "";
+
+	const markdownPreview = isMarkdownLang(content.lang) && content.showSource !== true;
+	const headerParts: string[] = [];
+	if (content.title) {
+		headerParts.push(`<span class="code-block-title">${escapeHtml(content.title)}</span>`);
+	}
+	if (content.file) {
+		headerParts.push(`<span class="code-block-file">${escapeHtml(content.file)}</span>`);
+	}
+	if (content.lines) {
+		headerParts.push(`<span class="code-block-lines">L${escapeHtml(content.lines)}</span>`);
+	}
+	if (content.lang && content.lang !== "diff") {
+		headerParts.push(`<span class="code-block-lang">${escapeHtml(content.lang)}</span>`);
+	}
+	const headerHtml = headerParts.length > 0
+		? `<div class="code-block-header">${headerParts.join("")}</div>`
+		: "";
+
+	if (markdownPreview) {
+		return `<div class="code-block markdown-content-block">${headerHtml}<div class="markdown-preview">${renderMarkdownPreviewHtml(content.source)}</div></div>`;
+	}
+
+	return `<div class="code-block">${headerHtml}<pre class="saved-code"><code>${escapeHtml(content.source)}</code></pre></div>`;
+}
+
 function renderMediaCaptionHtml(media: MediaBlock): string {
 	if (!media.caption) return "";
 	return `<div class="media-caption">${escapeHtml(media.caption)}</div>`;
@@ -545,14 +694,12 @@ function renderQuestionsHtml(questionsList: Question[], answers: ResponseItem[])
 			const mediaHtml = renderMediaListHtml(q.media);
 
 			if (q.type === "info") {
-				const codeHtml = q.codeBlock
-					? `<pre class="saved-code"><code>${escapeHtml(q.codeBlock.code)}</code></pre>`
-					: "";
+				const contentHtml = renderContentBlockHtml(q.content);
 				return `
       <div class="${weightClasses(q)}">
         <h2>${escapeHtml(q.question)}</h2>
         ${q.context ? `<p class="question-context">${escapeHtml(q.context)}</p>` : ""}
-        ${codeHtml}
+        ${contentHtml}
         ${mediaHtml}
       </div>
     `;
@@ -579,9 +726,7 @@ function renderQuestionsHtml(questionsList: Question[], answers: ResponseItem[])
 				answerHtml = `<div class="saved-answer">${savedAnswerItemHtml(String(value), q)}</div>`;
 			}
 
-			const codeHtml = q.codeBlock
-				? `<pre class="saved-code"><code>${escapeHtml(q.codeBlock.code)}</code></pre>`
-				: "";
+			const contentHtml = renderContentBlockHtml(q.content);
 
 			const attachHtml =
 				attachments.length > 0
@@ -598,7 +743,7 @@ function renderQuestionsHtml(questionsList: Question[], answers: ResponseItem[])
       <div class="${weightClasses(q)}">
         <h2>${numPrefix}${escapeHtml(q.question)}</h2>
         ${contextHtml}
-        ${codeHtml}
+        ${contentHtml}
         ${mediaHtml}
         ${answerHtml}
         ${attachHtml}
@@ -660,8 +805,11 @@ const SAVED_VIEW_STYLES = `
   padding: 12px;
   background: var(--bg-body);
   border-radius: var(--radius);
-  overflow-x: auto;
+  overflow-x: hidden;
   font-size: 13px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 .saved-answer {
   color: var(--fg);

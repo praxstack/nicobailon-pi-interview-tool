@@ -1393,6 +1393,9 @@ button {
   padding: 0.75rem;
   overflow-x: hidden;
   line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .code-block code {
@@ -1400,6 +1403,91 @@ button {
   font-size: var(--font-size-code);
   background: none;
   padding: 0;
+  white-space: inherit;
+  overflow-wrap: inherit;
+  word-break: inherit;
+}
+
+.markdown-content-block .code-block-header {
+  border-bottom: 0;
+}
+
+.markdown-preview {
+  padding: 0.875rem;
+  display: grid;
+  gap: 0.625rem;
+  color: var(--fg);
+  line-height: 1.6;
+  text-wrap: pretty;
+}
+
+.markdown-preview > * {
+  margin: 0;
+}
+
+.markdown-preview h1,
+.markdown-preview h2,
+.markdown-preview h3,
+.markdown-preview h4,
+.markdown-preview h5,
+.markdown-preview h6 {
+  font-family: var(--font-display);
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.markdown-preview h1 { font-size: 1.2rem; }
+.markdown-preview h2 { font-size: 1.1rem; }
+.markdown-preview h3 { font-size: 1rem; }
+
+.markdown-preview ul,
+.markdown-preview ol {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.markdown-preview blockquote {
+  margin: 0;
+  padding-left: 0.75rem;
+  border-left: 3px solid var(--accent-muted);
+  color: var(--fg-muted);
+}
+
+.markdown-preview pre {
+  margin: 0;
+  padding: 0.75rem;
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--bg-body) 90%, transparent);
+  border: 1px solid var(--border-muted);
+  overflow-x: auto;
+}
+
+.markdown-preview pre code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-code);
+  white-space: pre;
+}
+
+.markdown-preview code {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  background: color-mix(in srgb, var(--bg-body) 80%, transparent);
+  padding: 0.1rem 0.3rem;
+  border-radius: 4px;
+}
+
+.markdown-preview a {
+  color: var(--accent);
+  text-underline-offset: 2px;
+}
+
+.markdown-preview p code,
+.markdown-preview li code,
+.markdown-preview blockquote code {
+  white-space: normal;
+  overflow-wrap: anywhere;
 }
 
 .code-block-lines-container {

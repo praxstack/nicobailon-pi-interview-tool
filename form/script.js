@@ -380,17 +380,133 @@
     el.textContent = text || "";
   }
 
-  function renderLightMarkdown(text) {
-    if (!text) return "";
-    let html = text
+  function escapeHtml(text) {
+    return String(text || "")
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
+  }
+
+  function renderLightMarkdown(text) {
+    if (!text) return "";
+    let html = escapeHtml(text);
     html = html.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
     html = html.replace(/`([^`]+)`/g, "<code>$1</code>");
     html = html.replace(/\n/g, "<br>");
     html = html.replace(/\s(\d+\.)\s/g, "<br>$1 ");
     return html;
+  }
+
+  function isMarkdownLang(lang) {
+    if (typeof lang !== "string") return false;
+    const normalized = lang.trim().toLowerCase();
+    return normalized === "md" || normalized === "markdown";
+  }
+
+  function renderMarkdownPreviewFallback(markdown) {
+    const lines = String(markdown || "").replace(/\r\n?/g, "\n").split("\n");
+    const html = [];
+    const paragraph = [];
+    let listType = null;
+    let inFence = false;
+    let fenceLang = "";
+    let fenceLines = [];
+
+    const flushParagraph = () => {
+      if (paragraph.length === 0) return;
+      html.push(`<p>${renderLightMarkdown(paragraph.join(" "))}</p>`);
+      paragraph.length = 0;
+    };
+
+    const closeList = () => {
+      if (!listType) return;
+      html.push(listType === "ol" ? "</ol>" : "</ul>");
+      listType = null;
+    };
+
+    for (const rawLine of lines) {
+      const line = rawLine ?? "";
+
+      if (inFence) {
+        if (/^```/.test(line.trim())) {
+          html.push(`<pre class="markdown-fence"><code${fenceLang ? ` data-lang="${escapeHtml(fenceLang)}"` : ""}>${escapeHtml(fenceLines.join("\n"))}</code></pre>`);
+          inFence = false;
+          fenceLang = "";
+          fenceLines = [];
+        } else {
+          fenceLines.push(line);
+        }
+        continue;
+      }
+
+      const fenceStart = line.match(/^```\s*([^\s`]*)\s*$/);
+      if (fenceStart) {
+        flushParagraph();
+        closeList();
+        inFence = true;
+        fenceLang = fenceStart[1] || "";
+        fenceLines = [];
+        continue;
+      }
+
+      if (!line.trim()) {
+        flushParagraph();
+        closeList();
+        continue;
+      }
+
+      const headingMatch = line.match(/^\s{0,3}(#{1,6})\s+(.+)$/);
+      if (headingMatch) {
+        flushParagraph();
+        closeList();
+        const level = headingMatch[1].length;
+        html.push(`<h${level}>${renderLightMarkdown(headingMatch[2].trim())}</h${level}>`);
+        continue;
+      }
+
+      const quoteMatch = line.match(/^>\s?(.*)$/);
+      if (quoteMatch) {
+        flushParagraph();
+        closeList();
+        html.push(`<blockquote><p>${renderLightMarkdown(quoteMatch[1])}</p></blockquote>`);
+        continue;
+      }
+
+      const orderedMatch = line.match(/^\s*\d+\.\s+(.+)$/);
+      if (orderedMatch) {
+        flushParagraph();
+        if (listType !== "ol") {
+          closeList();
+          html.push("<ol>");
+          listType = "ol";
+        }
+        html.push(`<li>${renderLightMarkdown(orderedMatch[1])}</li>`);
+        continue;
+      }
+
+      const unorderedMatch = line.match(/^\s*[-*]\s+(.+)$/);
+      if (unorderedMatch) {
+        flushParagraph();
+        if (listType !== "ul") {
+          closeList();
+          html.push("<ul>");
+          listType = "ul";
+        }
+        html.push(`<li>${renderLightMarkdown(unorderedMatch[1])}</li>`);
+        continue;
+      }
+
+      closeList();
+      paragraph.push(line.trim());
+    }
+
+    if (inFence) {
+      html.push(`<pre class="markdown-fence"><code${fenceLang ? ` data-lang="${escapeHtml(fenceLang)}"` : ""}>${escapeHtml(fenceLines.join("\n"))}</code></pre>`);
+    }
+
+    flushParagraph();
+    closeList();
+    return html.join("\n");
   }
 
   function getOptionLabel(option) {
@@ -430,22 +546,14 @@
     question.recommended = nextRecommended;
   }
 
-  function renderCodeBlock(block) {
-    if (!block || !block.code) return null;
+  function renderContentBlock(block) {
+    if (!block || !block.source) return null;
 
+    const markdownPreview = isMarkdownLang(block.lang) && block.showSource !== true;
     const container = document.createElement("div");
     container.className = "code-block";
-
-    const showLineNumbers = !!block.file || !!block.lines;
-    const isDiff = block.lang === "diff";
-    const lines = block.code.split("\n");
-    const highlights = new Set(block.highlights || []);
-    
-    // Parse starting line number from lines prop (e.g., "10-16" -> 10, "42" -> 42)
-    let startLineNum = 1;
-    if (block.lines) {
-      const match = block.lines.match(/^(\d+)/);
-      if (match) startLineNum = parseInt(match[1], 10);
+    if (markdownPreview) {
+      container.classList.add("markdown-content-block");
     }
 
     if (block.file || block.lines || block.lang || block.title) {
@@ -481,6 +589,25 @@
       }
 
       container.appendChild(header);
+    }
+
+    if (markdownPreview) {
+      const preview = document.createElement("div");
+      preview.className = "markdown-preview";
+      preview.innerHTML = renderMarkdownPreviewFallback(block.source);
+      container.appendChild(preview);
+      return container;
+    }
+
+    const showLineNumbers = !!block.file || !!block.lines;
+    const isDiff = block.lang === "diff";
+    const lines = block.source.split("\n");
+    const highlights = new Set(block.highlights || []);
+
+    let startLineNum = 1;
+    if (block.lines) {
+      const match = block.lines.match(/^(\d+)/);
+      if (match) startLineNum = parseInt(match[1], 10);
     }
 
     const pre = document.createElement("pre");
@@ -526,7 +653,7 @@
 
       code.appendChild(linesContainer);
     } else {
-      code.textContent = block.code;
+      code.textContent = block.source;
     }
 
     pre.appendChild(code);
@@ -1676,11 +1803,11 @@
       card.appendChild(context);
     }
 
-    if (question.codeBlock) {
-      const codeBlockEl = renderCodeBlock(question.codeBlock);
-      if (codeBlockEl) {
-        codeBlockEl.classList.add("question-code-block");
-        card.appendChild(codeBlockEl);
+    if (question.content) {
+      const contentBlockEl = renderContentBlock(question.content);
+      if (contentBlockEl) {
+        contentBlockEl.classList.add("question-code-block");
+        card.appendChild(contentBlockEl);
       }
     }
 
@@ -1726,11 +1853,11 @@
 
       question.options.forEach((option, optionIndex) => {
         const optionLabel = getOptionLabel(option);
-        const optionCode = isRichOption(option) ? option.code : null;
+        const optionContent = isRichOption(option) ? option.content : null;
 
         const label = document.createElement("label");
         label.className = "option-item";
-        if (optionCode) {
+        if (optionContent) {
           label.classList.add("has-code");
         }
 
@@ -1764,10 +1891,10 @@
         label.appendChild(input);
         label.appendChild(text);
 
-        if (optionCode) {
-          const codeBlockEl = renderCodeBlock(optionCode);
-          if (codeBlockEl) {
-            label.appendChild(codeBlockEl);
+        if (optionContent) {
+          const contentBlockEl = renderContentBlock(optionContent);
+          if (contentBlockEl) {
+            label.appendChild(contentBlockEl);
           }
         }
 

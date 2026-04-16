@@ -2,6 +2,19 @@
 
 ## [Unreleased]
 
+## [0.6.2] - 2026-04-16
+
+### Changed
+- **Content block API (breaking)**: Replaced question `codeBlock` and rich-option `code` with `content` blocks using `source` + `lang`.
+- **Legacy field enforcement (breaking)**: Legacy `codeBlock` and rich-option `code` now fail schema validation with explicit migration errors. Use `content` instead.
+- **Markdown-by-default rendering**: `content.lang: "md" | "markdown"` now renders Markdown preview by default. Set `showSource: true` to force raw Markdown source.
+- **Rendering parity**: `content` rendering rules now match between the live interview UI and saved interview snapshots.
+
+### Fixed
+- Code snippets in the live interview UI and saved interview snapshots now wrap long lines instead of clipping or forcing horizontal overflow.
+- `showSource` is now enforced as markdown-only in schema validation and docs, matching runtime behavior.
+- Removed an unused client-side `renderedHtml` branch from markdown content rendering.
+
 ## [0.6.1] - 2026-04-04
 
 ### Fixed

@@ -139,26 +139,26 @@ await interview({
 | `id` | string | Unique identifier |
 | `type` | string | `single`, `multi`, `text`, `image`, or `info` |
 | `question` | string | Question text |
-| `options` | string[] or object[] | Choices (required for single/multi). Can be strings or `{ label, code? }` objects |
+| `options` | string[] or object[] | Choices (required for single/multi). Can be strings or `{ label, content? }` objects |
 | `recommended` | string or string[] | Shows "Recommended" badge and pre-selects option(s) |
 | `conviction` | string | `"strong"` or `"slight"`. Slight opts out of pre-selection. Requires `recommended` |
 | `weight` | string | `"critical"` (prominent card) or `"minor"` (compact card) |
 | `context` | string | Help text shown below question |
-| `codeBlock` | object | Code block displayed below question text |
+| `content` | object | Content block displayed below question text (`lang: "md"|"markdown"` previews Markdown by default) |
 | `media` | object or object[] | Media content: image, chart, mermaid, table, or html |
 
-### Code Blocks
+### Content Blocks
 
-Questions and options can include code blocks for displaying code snippets, diffs, and file references.
+Questions and options can include `content` blocks for code snippets, diffs, and Markdown.
 
-**Question-level code block** (displayed above options):
+**Question-level code content** (displayed above options):
 ```json
 {
   "id": "review",
   "type": "single",
   "question": "Review this implementation",
-  "codeBlock": {
-    "code": "function add(a, b) {\n  return a + b;\n}",
+  "content": {
+    "source": "function add(a, b) {\n  return a + b;\n}",
     "lang": "ts",
     "file": "src/math.ts",
     "lines": "10-12",
@@ -168,44 +168,59 @@ Questions and options can include code blocks for displaying code snippets, diff
 }
 ```
 
-**Options with code blocks**:
+**Options with content blocks**:
 ```json
 {
   "options": [
     {
       "label": "Use async/await",
-      "code": { "code": "const data = await fetch(url);", "lang": "ts" }
+      "content": { "source": "const data = await fetch(url);", "lang": "ts" }
     },
     {
       "label": "Use promises",
-      "code": { "code": "fetch(url).then(data => ...);", "lang": "ts" }
+      "content": { "source": "fetch(url).then(data => ...);", "lang": "ts" }
     },
     "Keep current implementation"
   ]
 }
 ```
 
-**Diff display** (set `lang: "diff"`):
+**Diff display** (`lang: "diff"`):
 ```json
 {
-  "codeBlock": {
-    "code": "--- a/file.ts\n+++ b/file.ts\n@@ -1,3 +1,4 @@\n const x = 1;\n+const y = 2;\n const z = 3;",
+  "content": {
+    "source": "--- a/file.ts\n+++ b/file.ts\n@@ -1,3 +1,4 @@\n const x = 1;\n+const y = 2;\n const z = 3;",
     "lang": "diff",
     "file": "src/file.ts"
   }
 }
 ```
 
-| CodeBlock Field | Type | Description |
-|-----------------|------|-------------|
-| `code` | string | The code content (required) |
-| `lang` | string | Language for display (e.g., "ts", "diff") |
-| `file` | string | File path to display in header |
-| `lines` | string | Line range to display (e.g., "10-25") |
-| `highlights` | number[] | Line numbers to highlight |
-| `title` | string | Optional title above code |
+**Markdown preview by default** (`lang: "md"` or `"markdown"`):
+```json
+{
+  "content": {
+    "source": "# Release notes\n\n- Added preview mode\n- Fixed wrapping",
+    "lang": "md"
+  }
+}
+```
 
-Line numbers are shown when `file` or `lines` is specified. Diff syntax (`+`/`-` lines) is automatically styled when `lang` is "diff".
+Set `showSource: true` on Markdown content to show raw Markdown instead of preview.
+
+| Content Field | Type | Description |
+|---------------|------|-------------|
+| `source` | string | Content text (required) |
+| `lang` | string | Language hint (e.g., `ts`, `diff`, `md`) |
+| `file` | string | File path shown in the header |
+| `lines` | string | Line range shown in the header (code content only) |
+| `highlights` | number[] | Line highlights (code content only) |
+| `title` | string | Optional title above content |
+| `showSource` | boolean | Markdown only: `true` forces raw source instead of preview |
+
+Rules:
+- `lang: "md"` or `"markdown"`: preview by default, `showSource: true` shows raw source.
+- Any other `lang`: renders as raw source; `showSource` is not allowed.
 
 ### Info Panels
 
