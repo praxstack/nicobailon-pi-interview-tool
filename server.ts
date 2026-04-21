@@ -250,6 +250,7 @@ export interface InterviewServerCallbacks {
 		option: OptionValue,
 		prompt: string,
 		modelOverride: string | null,
+		depth: string,
 		signal: AbortSignal,
 	) => Promise<OptionInsightResult>;
 }
@@ -1932,6 +1933,7 @@ export async function startInterviewServer(
 					optionKey?: string;
 					prompt?: string;
 					model?: string | null;
+					depth?: string;
 				};
 
 				if (typeof payload.questionId !== "string") {
@@ -1973,6 +1975,7 @@ export async function startInterviewServer(
 						option,
 						payload.prompt.trim(),
 						typeof payload.model === "string" ? payload.model : null,
+						typeof payload.depth === "string" ? payload.depth : "standard",
 						controller.signal,
 					);
 					sendJson(res, 200, { ok: true, optionText, ...result });

@@ -302,8 +302,9 @@ export function selectGenerateModels<T extends GenerateModelCandidate>(
 	return { primary: availableModels[0] ?? null, fallback: null };
 }
 
-function buildAskModelsData(
+export function buildAskModelsData(
 	availableModels: Model<Api>[],
+	currentModel: Model<Api> | null,
 	primaryModel: Model<Api> | null,
 	fallbackModel: Model<Api> | null,
 ): AskModelOption[] {
@@ -321,16 +322,15 @@ function buildAskModelsData(
 		});
 	};
 
+	addModel(currentModel);
 	addModel(primaryModel);
 	addModel(fallbackModel);
-	for (const model of availableModels) {
-		addModel(model);
+	for (const modelRef of PREFERRED_GENERATE_MODELS) {
+		const preferredModel = findModelByRef(availableModels, modelRef);
+		addModel(preferredModel);
 	}
 
-	return models.sort((a, b) => {
-		if (a.provider !== b.provider) return a.provider.localeCompare(b.provider);
-		return a.label.localeCompare(b.label);
-	});
+	return models;
 }
 
 export function extractGenerateResponseText(
@@ -815,7 +815,7 @@ export default function (pi: ExtensionAPI) {
 				ctx.model ?? null,
 				availableGenerateModels,
 			);
-			const askModels = buildAskModelsData(availableGenerateModels, generateModel, fallbackGenerateModel);
+			const askModels = buildAskModelsData(availableGenerateModels, ctx.model ?? null, generateModel, fallbackGenerateModel);
 			const defaultAskModel = generateModel ? formatModelRef(generateModel) : null;
 
 			// Expand ~ in snapshotDir if present
@@ -1112,15 +1112,21 @@ export default function (pi: ExtensionAPI) {
 						return selectedModel;
 					};
 
-					onOptionInsight = async (questionId, option, prompt, modelOverride, generateSignal) => {
+					onOptionInsight = async (questionId, option, prompt, modelOverride, depth, generateSignal) => {
 						const question = questionsData.questions.find((q) => q.id === questionId);
 						if (!question) throw new Error(`Unknown question: ${questionId}`);
 						const optionText = getOptionLabel(option);
 						const optionContent = typeof option === "string" ? null : option.content;
 
+						const depthInstructions = {
+							quick: "Keep the analysis very brief: a one-sentence summary and at most one bullet point.",
+							standard: "Be concrete and concise. A short summary and a few bullet points.",
+							deep: "Provide a thorough analysis: detailed summary, multiple bullet points covering tradeoffs, risks, and edge cases.",
+						};
+
 						const questionPrompt = [
 							"Analyze this single interview answer option.",
-							"Be concrete and concise.",
+							depthInstructions[depth as keyof typeof depthInstructions] || depthInstructions.standard,
 							"Explain what is good or risky about the option, and suggest a rewrite only if it would materially improve clarity.",
 							"Return ONLY JSON with summary, bullets, and optional suggestedText.",
 							"",

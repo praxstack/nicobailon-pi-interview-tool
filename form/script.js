@@ -738,6 +738,12 @@
     return askModels[0]?.provider || "";
   }
 
+  const ASK_DEPTH_OPTIONS = [
+    { key: "quick", label: "Quick" },
+    { key: "standard", label: "Standard" },
+    { key: "deep", label: "Deep" },
+  ];
+
   function createDefaultActiveInsight(questionId, optionKey) {
     const selectedModel = askModels.some((model) => model.value === defaultAskModel)
       ? defaultAskModel
@@ -754,6 +760,7 @@
       advancedOpen: false,
       selectedProvider: parsed.provider || getFirstProvider(),
       selectedModel,
+      selectedDepth: "standard",
       abortController: null,
     };
   }
@@ -1021,6 +1028,7 @@
           optionKey,
           prompt,
           model: modelOverride && modelOverride !== defaultAskModel ? modelOverride : null,
+          depth: active.selectedDepth || "standard",
         }),
         signal: active.abortController.signal,
       });
@@ -1180,22 +1188,27 @@
     const metaRow = document.createElement("div");
     metaRow.className = "option-insight-meta-row";
 
-    const model = document.createElement("div");
-    model.className = "option-insight-model";
-    model.textContent = getInsightModelLabel(active);
-    metaRow.appendChild(model);
-
-    const advancedToggle = document.createElement("button");
-    advancedToggle.type = "button";
-    advancedToggle.className = "option-insight-advanced-toggle";
-    advancedToggle.textContent = active.advancedOpen ? "Advanced model settings ▾" : "Advanced model settings ▸";
-    advancedToggle.addEventListener("click", (event) => {
+    const modelBadge = document.createElement("button");
+    modelBadge.type = "button";
+    modelBadge.className = "option-insight-model-badge";
+    const badgeLabel = document.createElement("span");
+    badgeLabel.className = "badge-label";
+    badgeLabel.textContent = "Model";
+    const badgeValue = document.createElement("span");
+    badgeValue.textContent = getInsightModelLabel(active);
+    const badgeCaret = document.createElement("span");
+    badgeCaret.className = "badge-caret";
+    badgeCaret.textContent = active.advancedOpen ? "▾" : "▸";
+    modelBadge.appendChild(badgeLabel);
+    modelBadge.appendChild(badgeValue);
+    modelBadge.appendChild(badgeCaret);
+    modelBadge.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
       active.advancedOpen = !active.advancedOpen;
       replaceQuestionOptionList(question, getQuestionValue(question), optionKey);
     });
-    metaRow.appendChild(advancedToggle);
+    metaRow.appendChild(modelBadge);
 
     panel.appendChild(metaRow);
 
@@ -1203,38 +1216,63 @@
       const advanced = document.createElement("div");
       advanced.className = "option-insight-advanced";
 
-      const providerSelect = document.createElement("select");
-      providerSelect.className = "option-insight-select";
       const providers = [...new Set(askModels.map((model) => model.provider))];
+      const providerRow = document.createElement("div");
+      providerRow.className = "option-insight-provider-row";
       providers.forEach((provider) => {
-        const option = document.createElement("option");
-        option.value = provider;
-        option.textContent = providerLabel(provider);
-        providerSelect.appendChild(option);
+        const btn = document.createElement("button");
+        btn.type = "button";
+        const isSelected = (active.selectedProvider || providers[0] || "") === provider;
+        btn.className = "option-insight-provider-btn" + (isSelected ? " is-selected" : "");
+        btn.textContent = providerLabel(provider);
+        btn.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          active.selectedProvider = provider;
+          const providerModels = getModelsForProvider(provider);
+          active.selectedModel = providerModels[0]?.value || null;
+          replaceQuestionOptionList(question, getQuestionValue(question), optionKey);
+        });
+        providerRow.appendChild(btn);
       });
-      providerSelect.value = active.selectedProvider || providers[0] || "";
-      providerSelect.addEventListener("change", () => {
-        active.selectedProvider = providerSelect.value;
-        const providerModels = getModelsForProvider(active.selectedProvider);
-        active.selectedModel = providerModels[0]?.value || null;
-        replaceQuestionOptionList(question, getQuestionValue(question), optionKey);
-      });
-      advanced.appendChild(providerSelect);
+      advanced.appendChild(providerRow);
 
-      const modelSelect = document.createElement("select");
-      modelSelect.className = "option-insight-select";
       const providerModels = getModelsForProvider(active.selectedProvider);
+      const modelRow = document.createElement("div");
+      modelRow.className = "option-insight-model-row";
       providerModels.forEach((modelOption) => {
-        const option = document.createElement("option");
-        option.value = modelOption.value;
-        option.textContent = modelOption.label;
-        modelSelect.appendChild(option);
+        const btn = document.createElement("button");
+        btn.type = "button";
+        const isSelected = active.selectedModel === modelOption.value;
+        btn.className = "option-insight-model-btn" + (isSelected ? " is-selected" : "");
+        btn.textContent = modelOption.label;
+        btn.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          active.selectedModel = modelOption.value;
+          replaceQuestionOptionList(question, getQuestionValue(question), optionKey);
+        });
+        modelRow.appendChild(btn);
       });
-      modelSelect.value = active.selectedModel || providerModels[0]?.value || "";
-      modelSelect.addEventListener("change", () => {
-        active.selectedModel = modelSelect.value;
+      advanced.appendChild(modelRow);
+
+      const depthRow = document.createElement("div");
+      depthRow.className = "option-insight-depth-row";
+      ASK_DEPTH_OPTIONS.forEach((depth) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        const isSelected = active.selectedDepth === depth.key;
+        btn.className = "option-insight-depth-btn" + (isSelected ? " is-selected" : "");
+        btn.textContent = depth.label;
+        btn.addEventListener("click", (event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          active.selectedDepth = depth.key;
+          replaceQuestionOptionList(question, getQuestionValue(question), optionKey);
+        });
+        depthRow.appendChild(btn);
       });
-      advanced.appendChild(modelSelect);
+      advanced.appendChild(depthRow);
 
       panel.appendChild(advanced);
     }
@@ -1254,6 +1292,20 @@
     actions.appendChild(askButton);
 
     panel.appendChild(actions);
+
+    if (active.loading && !active.result) {
+      const loading = document.createElement("div");
+      loading.className = "option-insight-loading";
+      const spinner = document.createElement("span");
+      spinner.className = "option-insight-spinner";
+      spinner.textContent = "Thinking";
+      loading.appendChild(spinner);
+      const dots = document.createElement("span");
+      dots.className = "option-insight-dots";
+      dots.textContent = "...";
+      loading.appendChild(dots);
+      panel.appendChild(loading);
+    }
 
     if (active.error) {
       const error = document.createElement("div");

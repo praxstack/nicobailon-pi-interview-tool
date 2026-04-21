@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-04-21
+
+### Changed
+- **Ask model controls refined**: The Ask panel now shows a clearer `Model` badge, uses pill-based provider/model selection instead of a raw dropdown, and adds editable response depth levels (`Quick`, `Standard`, `Deep`).
+
+### Fixed
+- **Ask loading feedback**: Asking about an option now shows a visible loading state while the answer is being generated instead of leaving the panel visually idle.
+- **Ask model list validity**: The Ask picker now shows a curated subset of likely-valid models instead of exposing raw registry entries that may be unavailable for the current account.
+
 ## [0.8.0] - 2026-04-21
 
 ### Added

@@ -14,6 +14,7 @@ import interviewExtension, {
 	parseReviewedQuestion,
 	parseReviewedQuestionUpdate,
 	selectGenerateModels,
+	buildAskModelsData,
 } from "./index.js";
 
 describe("selectGenerateModels", () => {
@@ -42,6 +43,27 @@ describe("selectGenerateModels", () => {
 	it("does not set a fallback when configured and current are the same model", () => {
 		const result = selectGenerateModels(configured, configured, available);
 		expect(result).toEqual({ primary: configured, fallback: null });
+	});
+});
+
+describe("buildAskModelsData", () => {
+	it("limits Ask choices to current/default/fallback and preferred safe alternatives", () => {
+		const current = { provider: "openai-codex", id: "gpt-5.4" };
+		const primary = { provider: "openai-codex", id: "gpt-5.4" };
+		const fallback = { provider: "anthropic", id: "claude-haiku-4-5" };
+		const available = [
+			{ provider: "openai-codex", id: "gpt-5.1-codex-mini" },
+			{ provider: "openai-codex", id: "gpt-5.4" },
+			{ provider: "anthropic", id: "claude-haiku-4-5" },
+			{ provider: "google", id: "gemini-2.5-flash" },
+			{ provider: "openrouter", id: "some-random-model" },
+		];
+
+		expect(buildAskModelsData(available, current, primary, fallback)).toEqual([
+			{ value: "openai-codex/gpt-5.4", provider: "openai-codex", label: "gpt-5.4" },
+			{ value: "anthropic/claude-haiku-4-5", provider: "anthropic", label: "claude-haiku-4-5" },
+			{ value: "google/gemini-2.5-flash", provider: "google", label: "gemini-2.5-flash" },
+		]);
 	});
 });
 
