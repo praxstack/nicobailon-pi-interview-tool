@@ -529,6 +529,33 @@
     return typeof option === "string" ? option : option.label;
   }
 
+  function normalizeRecommendationMatchText(value) {
+    return value.normalize("NFC").trim();
+  }
+
+  function resolveRecommendedLabels(recommended, options) {
+    if (!recommended || !Array.isArray(options)) return [];
+
+    const labelsByNormalized = new Map();
+    options.forEach((option) => {
+      const label = getOptionLabel(option);
+      const normalized = normalizeRecommendationMatchText(label);
+      if (!normalized || labelsByNormalized.has(normalized)) return;
+      labelsByNormalized.set(normalized, label);
+    });
+
+    const resolved = [];
+    const candidates = Array.isArray(recommended) ? recommended : [recommended];
+    candidates.forEach((candidate) => {
+      if (typeof candidate !== "string") return;
+      const match = labelsByNormalized.get(normalizeRecommendationMatchText(candidate));
+      if (match && !resolved.includes(match)) {
+        resolved.push(match);
+      }
+    });
+    return resolved;
+  }
+
   function questionCanClarifyOption(question) {
     return (question.type === "single" || question.type === "multi")
       && Array.isArray(question.options)
@@ -629,11 +656,12 @@
   }
 
   function syncRecommendations(question, options) {
-    const optionLabels = options.map((option) => getOptionLabel(option));
     if (!question.recommended) return;
+    const resolvedRecommended = resolveRecommendedLabels(question.recommended, options);
 
     if (question.type === "single") {
-      if (typeof question.recommended === "string" && optionLabels.includes(question.recommended)) {
+      if (resolvedRecommended.length > 0) {
+        question.recommended = resolvedRecommended[0];
         return;
       }
       delete question.recommended;
@@ -647,15 +675,12 @@
       return;
     }
 
-    const nextRecommended = (Array.isArray(question.recommended)
-      ? question.recommended
-      : [question.recommended]).filter((option) => optionLabels.includes(option));
-    if (nextRecommended.length === 0) {
+    if (resolvedRecommended.length === 0) {
       delete question.recommended;
       delete question.conviction;
       return;
     }
-    question.recommended = nextRecommended;
+    question.recommended = resolvedRecommended;
   }
 
   function makeClientId(prefix = "id") {
@@ -1481,12 +1506,7 @@
     text.className = "option-item-label";
     text.textContent = optionLabel;
 
-    const recommended = question.recommended;
-    const recommendedList = Array.isArray(recommended)
-      ? recommended
-      : recommended
-        ? [recommended]
-        : [];
+    const recommendedList = resolveRecommendedLabels(question.recommended, question.options || []);
     const shouldPreselect = recommendedList.length > 0 && question.conviction !== "slight";
 
     if (recommendedList.includes(optionLabel)) {
@@ -3567,9 +3587,7 @@
     }
   }
 
-  // Pre-populate form from saved interview answers
   function populateFromSavedAnswers(savedAnswers) {
-    // Convert ResponseItem[] to Record for existing populateForm()
     const valueMap = {};
     savedAnswers.forEach((ans) => {
       const question = questions.find((q) => q.id === ans.id);
@@ -3579,7 +3597,6 @@
     });
     populateForm(valueMap);
 
-    // Restore attachments to attachPathState
     savedAnswers.forEach((ans) => {
       if (ans.attachments && ans.attachments.length > 0) {
         attachPathState.set(ans.id, [...ans.attachments]);
@@ -3595,7 +3612,6 @@
       }
     });
 
-    // Restore image paths for image-type questions
     savedAnswers.forEach((ans) => {
       const question = questions.find((q) => q.id === ans.id);
       if (question?.type === "image" && ans.value) {
@@ -3608,7 +3624,6 @@
       }
     });
 
-    // Update done states for multi-select
     questions.forEach((q) => {
       if (q.type === "multi") {
         updateDoneState(q.id);
@@ -3627,13 +3642,13 @@
       const reader = new FileReader();
       reader.onload = () => {
         if (typeof reader.result !== "string") {
-          reject(new Error("Failed to read file"));
+          reject(new Error(`Failed to read file: unexpected FileReader result type ${typeof reader.result}`));
           return;
         }
         const parts = reader.result.split(",");
         resolve(parts[1] || "");
       };
-      reader.onerror = () => reject(new Error("Failed to read file"));
+      reader.onerror = () => reject(new Error(reader.error?.message || "Failed to read file"));
       reader.readAsDataURL(file);
     });
   }
@@ -3674,7 +3689,6 @@
     return { responses, images };
   }
 
-  // Save interview snapshot
   async function saveInterview(options = {}) {
     const { submitted = false } = options;
 
@@ -3759,8 +3773,6 @@
         return;
       }
 
-      // Auto-save on successful submit (fire-and-forget)
-      // Note: data is window.__INTERVIEW_DATA__, result is server response
       if (data.autoSaveOnSubmit !== false) {
         saveInterview({ submitted: true });
       }

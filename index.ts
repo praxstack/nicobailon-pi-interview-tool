@@ -18,7 +18,7 @@ import {
 	type AskModelOption,
 	type OptionInsightResult,
 } from "./server.js";
-import { getOptionLabel, isRichOption, validateQuestions, sanitizeLLMJSON, type OptionValue, type QuestionsFile } from "./schema.js";
+import { getOptionLabel, isRichOption, validateQuestions, sanitizeLLMJSON, type OptionValue, type Question, type QuestionsFile } from "./schema.js";
 import { loadSettings, type InterviewThemeSettings } from "./settings.js";
 
 interface GlimpseWindow {
@@ -715,28 +715,100 @@ function hasAnswerValue(value: ResponseItem["value"]): boolean {
 	return typeof value === "string" && value.trim() !== "";
 }
 
-function formatResponses(responses: ResponseItem[]): string {
-	if (responses.length === 0) return "(none)";
-	return responses
-		.map((resp) => {
-			const value = formatResponseValue(resp.value);
-			let line = `- ${resp.id}: ${value}`;
-			if (resp.attachments && resp.attachments.length > 0) {
-				line += ` [attachments: ${resp.attachments.join(", ")}]`;
+function hasResponseContent(response: ResponseItem): boolean {
+	return hasAnswerValue(response.value) || !!response.attachments?.length;
+}
+
+function summarizeResponseValue(question: Question, response: ResponseItem): string {
+	if (question.type === "image") {
+		if (Array.isArray(response.value)) {
+			return response.value.length === 1 ? "1 image attached" : `${response.value.length} images attached`;
+		}
+		if (typeof response.value === "string" && response.value.trim() !== "") {
+			return "1 image attached";
+		}
+	}
+
+	if (hasAnswerValue(response.value)) {
+		return String(formatResponseValue(response.value));
+	}
+
+	if (response.attachments?.length) {
+		return response.attachments.length === 1 ? "1 attachment included" : `${response.attachments.length} attachments included`;
+	}
+
+	return "";
+}
+
+interface AgentResponseItem {
+	id: string;
+	question: string;
+	type: Question["type"];
+	value: ResponseItem["value"];
+	attachments?: string[];
+}
+
+export function buildAnsweredAgentResponseItems(
+	responses: ResponseItem[],
+	questions: Question[],
+): AgentResponseItem[] {
+	const responseById = new Map<string, ResponseItem>();
+	for (const response of responses) {
+		if (!response || typeof response.id !== "string") continue;
+		responseById.set(response.id, response);
+	}
+
+	return questions
+		.map((question) => {
+			const response = responseById.get(question.id);
+			if (!response || !hasResponseContent(response)) return null;
+			return {
+				id: question.id,
+				question: question.question,
+				type: question.type,
+				value: response.value,
+				attachments: response.attachments?.length ? [...response.attachments] : undefined,
+			} satisfies AgentResponseItem;
+		})
+		.filter((item): item is AgentResponseItem => item !== null);
+}
+
+export function formatAnsweredResponsesForAgent(
+	responses: ResponseItem[],
+	questions: Question[],
+): string {
+	const answeredItems = buildAnsweredAgentResponseItems(responses, questions);
+	if (answeredItems.length === 0) return "(none)";
+	const questionById = new Map(questions.map((question) => [question.id, question]));
+	const responseById = new Map(responses.map((response) => [response.id, response]));
+
+	const summary = answeredItems
+		.map((item) => {
+			const question = questionById.get(item.id);
+			const response = responseById.get(item.id);
+			if (!question || !response) {
+				return `- ${item.question}`;
+			}
+			let line = `- ${item.question}: ${summarizeResponseValue(question, response)}`;
+			if (item.attachments?.length) {
+				line += ` [attachments: ${item.attachments.join(", ")}]`;
 			}
 			return line;
 		})
 		.join("\n");
+
+	const json = JSON.stringify(answeredItems, null, 2);
+	return `${summary}\n\nStructured response data:\n\n\`\`\`json\n${json}\n\`\`\``;
 }
 
 function hasAnyAnswers(responses: ResponseItem[]): boolean {
 	if (!responses || responses.length === 0) return false;
-	return responses.some((resp) => !!resp && resp.value != null && hasAnswerValue(resp.value));
+	return responses.some((resp) => !!resp && hasResponseContent(resp));
 }
 
 function filterAnsweredResponses(responses: ResponseItem[]): ResponseItem[] {
 	if (!responses) return [];
-	return responses.filter((resp) => !!resp && resp.value != null && hasAnswerValue(resp.value));
+	return responses.filter((resp) => !!resp && hasResponseContent(resp));
 }
 
 export default function (pi: ExtensionAPI) {
@@ -855,21 +927,21 @@ export default function (pi: ExtensionAPI) {
 
 					let text = "";
 					if (status === "completed") {
-						text = `User completed the interview form.\n\nResponses:\n${formatResponses(responses)}`;
+						text = `User completed the interview form.\n\nAnswered responses:\n${formatAnsweredResponsesForAgent(responses, questionsData.questions)}`;
 					} else if (status === "cancelled") {
 						if (cancelReason === "stale") {
 							text =
 								"Interview session ended due to lost heartbeat.\n\nQuestions saved to: ~/.pi/interview-recovery/";
 						} else if (hasAnyAnswers(responses)) {
 							const answered = filterAnsweredResponses(responses);
-							text = `User cancelled the interview with partial responses:\n${formatResponses(answered)}\n\nProceed with these inputs and use your best judgment for unanswered questions.`;
+							text = `User cancelled the interview with partial responses.\n\nAnswered responses:\n${formatAnsweredResponsesForAgent(answered, questionsData.questions)}\n\nProceed with these inputs and use your best judgment for unanswered questions.`;
 						} else {
 							text = "User skipped the interview without providing answers. Proceed with your best judgment - use recommended options where specified, make reasonable choices elsewhere. Don't ask for clarification unless absolutely necessary.";
 						}
 					} else if (status === "timeout") {
 						if (hasAnyAnswers(responses)) {
 							const answered = filterAnsweredResponses(responses);
-							text = `Interview form timed out after ${timeoutSeconds} seconds.\n\nPartial responses before timeout:\n${formatResponses(answered)}\n\nQuestions saved to: ~/.pi/interview-recovery/\n\nProceed with these inputs and use your best judgment for unanswered questions.`;
+							text = `Interview form timed out after ${timeoutSeconds} seconds.\n\nAnswered responses before timeout:\n${formatAnsweredResponsesForAgent(answered, questionsData.questions)}\n\nQuestions saved to: ~/.pi/interview-recovery/\n\nProceed with these inputs and use your best judgment for unanswered questions.`;
 						} else {
 							text = `Interview form timed out after ${timeoutSeconds} seconds.\n\nQuestions saved to: ~/.pi/interview-recovery/`;
 						}

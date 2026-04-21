@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+## [0.8.2] - 2026-04-21
+
+### Fixed
+- Recommendation badges and preselection now survive review-time option normalization. The server and client reconcile `recommended` labels against the current option labels instead of silently dropping them on harmless whitespace/formatting changes.
+- Completed, cancelled-with-answers, and timed-out interview sessions now send the agent an answered-only result payload keyed by full question text plus a fenced JSON block with the exact structured response data. This avoids losing selected options behind terse internal ids like `scope` and preserves choice notes, attachments, and image answers.
+- Upload encoding failures now preserve the underlying `FileReader` error message instead of collapsing everything to a generic `Failed to read file`, which makes submit/save upload problems debuggable again.
+
 ## [0.8.1] - 2026-04-21
 
 ### Changed

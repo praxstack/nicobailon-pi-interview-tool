@@ -2,11 +2,13 @@ import { describe, expect, it } from "vitest";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { startInterviewServer } from "./server.js";
+import { startInterviewServer, type ResponseItem } from "./server.js";
 import interviewExtension, {
+	buildAnsweredAgentResponseItems,
 	createGenerateContext,
 	extractGenerateResponseText,
 	extractJSONArray,
+	formatAnsweredResponsesForAgent,
 	loadSavedInterview,
 	parseGeneratedOptionValues,
 	parseOptionInsight,
@@ -16,6 +18,7 @@ import interviewExtension, {
 	selectGenerateModels,
 	buildAskModelsData,
 } from "./index.js";
+import type { Question } from "./schema.js";
 
 describe("selectGenerateModels", () => {
 	const configured = { provider: "anthropic", id: "claude-haiku-4-5" };
@@ -185,6 +188,137 @@ describe("parseOptionInsight", () => {
 	});
 });
 
+describe("agent-facing interview response formatting", () => {
+	const questions: Question[] = [
+		{ id: "scope", type: "multi", question: "Which areas should the compactness plan target first?", options: ["Tool overrides", "Vendored modal stack", "README"] },
+		{ id: "risk", type: "single", question: "How aggressive should the plan be?", options: ["Conservative", "Moderate"] },
+		{ id: "constraints", type: "text", question: "Any extra constraints for the plan?" },
+		{ id: "mockup", type: "image", question: "Attach supporting screenshots" },
+	];
+
+	it("uses full question text, omits unanswered items, and preserves structured JSON", () => {
+		const responses: ResponseItem[] = [
+			{ id: "scope", value: [{ option: "Tool overrides" }, { option: "Vendored modal stack", note: "Only if import path cleanup is simple" }] },
+			{ id: "risk", value: { option: "Moderate" } },
+			{ id: "constraints", value: "Avoid changing public docs." },
+			{ id: "mockup", value: "" },
+		];
+
+		const text = formatAnsweredResponsesForAgent(responses, questions);
+
+		expect(text).toContain("- Which areas should the compactness plan target first?: Tool overrides, Vendored modal stack (Only if import path cleanup is simple)");
+		expect(text).toContain("- How aggressive should the plan be?: Moderate");
+		expect(text).toContain("- Any extra constraints for the plan?: Avoid changing public docs.");
+		expect(text).not.toContain("scope:");
+		expect(text).not.toContain("Attach supporting screenshots");
+		expect(text).toContain("```json");
+		expect(text).toContain('"question": "Which areas should the compactness plan target first?"');
+		expect(text).toContain('"note": "Only if import path cleanup is simple"');
+	});
+
+	it("treats attachment-only and image responses as answered content", () => {
+		const responses: ResponseItem[] = [
+			{ id: "constraints", value: "", attachments: ["/tmp/spec.pdf"] },
+			{ id: "mockup", value: ["/tmp/mock-1.png", "/tmp/mock-2.png"] },
+		];
+
+		const items = buildAnsweredAgentResponseItems(responses, questions);
+		const text = formatAnsweredResponsesForAgent(responses, questions);
+
+		expect(items).toEqual([
+			{
+				id: "constraints",
+				question: "Any extra constraints for the plan?",
+				type: "text",
+				value: "",
+				attachments: ["/tmp/spec.pdf"],
+			},
+			{
+				id: "mockup",
+				question: "Attach supporting screenshots",
+				type: "image",
+				value: ["/tmp/mock-1.png", "/tmp/mock-2.png"],
+			},
+		]);
+		expect(text).toContain("- Any extra constraints for the plan?: 1 attachment included [attachments: /tmp/spec.pdf]");
+		expect(text).toContain("- Attach supporting screenshots: 2 images attached");
+		const jsonBlock = text.match(/```json\n([\s\S]*?)\n```/);
+		expect(jsonBlock?.[1]).toBeTruthy();
+		expect(JSON.parse(jsonBlock![1])).toEqual(items);
+	});
+
+	it("keeps the compactness-plan answers visible in the agent payload for the screenshot-shaped case", () => {
+		const questions: Question[] = [
+			{
+				id: "scope",
+				type: "multi",
+				question: "Which areas should the compactness plan target first?",
+				options: [
+					"`src/tool-overrides.ts` monolith",
+					"Vendored modal stack (`src/zellij-modal.ts`, settings UI)",
+					"Small utility dedupes (`pluralize`, line splitting/counting, preview helpers)",
+					"README / config surface trimming if code no longer needs it",
+					"`src/multi-edit.ts` itself",
+				],
+			},
+			{
+				id: "risk",
+				type: "single",
+				question: "How aggressive should the plan be?",
+				options: ["Conservative", "Moderate", "Aggressive"],
+			},
+			{
+				id: "vendor",
+				type: "single",
+				question: "What should the plan assume about the vendored `zellij-modal.ts`?",
+				options: [
+					"Keep vendored; only trim local wrappers around it",
+					"Open to replacing vendored code with shared dependency/use-site import if feasible",
+					"Undecided - include both options with tradeoffs",
+				],
+			},
+			{
+				id: "output",
+				type: "single",
+				question: "What kind of plan do you want?",
+				options: [
+					"Execution plan: ordered phases, concrete edits, validation steps, and stop points",
+					"Architecture memo: critique plus options, no implementation sequence",
+					"Short tactical checklist only",
+				],
+			},
+			{
+				id: "constraints",
+				type: "text",
+				question: "Any extra constraints for the plan?",
+			},
+		];
+
+		const responses: ResponseItem[] = [
+			{
+				id: "scope",
+				value: [
+					{ option: "`src/tool-overrides.ts` monolith" },
+					{ option: "Vendored modal stack (`src/zellij-modal.ts`, settings UI)" },
+				],
+			},
+			{ id: "risk", value: { option: "Moderate" } },
+			{ id: "vendor", value: { option: "Open to replacing vendored code with shared dependency/use-site import if feasible" } },
+			{ id: "output", value: { option: "Execution plan: ordered phases, concrete edits, validation steps, and stop points" } },
+			{ id: "constraints", value: "" },
+		];
+
+		const text = formatAnsweredResponsesForAgent(responses, questions);
+
+		expect(text).toContain("- Which areas should the compactness plan target first?: `src/tool-overrides.ts` monolith, Vendored modal stack (`src/zellij-modal.ts`, settings UI)");
+		expect(text).toContain("- How aggressive should the plan be?: Moderate");
+		expect(text).toContain("- What should the plan assume about the vendored `zellij-modal.ts`?: Open to replacing vendored code with shared dependency/use-site import if feasible");
+		expect(text).toContain("- What kind of plan do you want?: Execution plan: ordered phases, concrete edits, validation steps, and stop points");
+		expect(text).not.toContain("- scope:");
+		expect(text).not.toContain("- constraints:");
+	});
+});
+
 describe("loadSavedInterview", () => {
 	it("resolves only image and attachment paths while keeping literal answers unchanged", () => {
 		const html = `<!doctype html><html><body>
@@ -302,6 +436,12 @@ describe("content rendering styles", () => {
 		const clientSource = readFileSync("form/script.js", "utf-8");
 		expect(clientSource).toContain("populateForm({ [question.id]: value }, { preserveChoiceNotes: true });");
 		expect(clientSource).toContain("if (!preserveChoiceNotes) {\n          clearChoiceNotes(question.id);\n        }");
+	});
+
+	it("preserves FileReader error details when upload encoding fails", () => {
+		const clientSource = readFileSync("form/script.js", "utf-8");
+		expect(clientSource).toContain('reject(new Error(reader.error?.message || "Failed to read file"));');
+		expect(clientSource).toContain('reject(new Error(`Failed to read file: unexpected FileReader result type ${typeof reader.result}`));');
 	});
 });
 
@@ -542,6 +682,58 @@ describe("rich option question flows", () => {
 			expect(result.optionKeys).toHaveLength(2);
 			expect(result.optionKeys[0]).toBe(bootData.optionKeysByQuestion.policy[1]);
 			expect(result.optionKeys[1]).not.toBe(bootData.optionKeysByQuestion.policy[0]);
+		} finally {
+			handle.close();
+		}
+	});
+
+	it("preserves recommendations when review normalizes an option label", async () => {
+		const handle = await startInterviewServer(
+			{
+				questions: {
+					title: "Recommendation review",
+					questions: [
+						{
+							id: "focus",
+							type: "single",
+							question: "What should we tackle first?",
+							options: ["  Keep current shape  ", "Alternative"],
+							recommended: "  Keep current shape  ",
+						},
+					],
+				},
+				sessionToken: "recommendation-review-token",
+				sessionId: "recommendation-review-session",
+				cwd: process.cwd(),
+				timeout: 600,
+			},
+			{
+				onSubmit: () => {},
+				onCancel: () => {},
+				onGenerate: async () => ({
+					question: "What should we tackle first?",
+					options: ["Keep current shape", "Alternative", "New idea"],
+				}),
+			},
+		);
+
+		try {
+			const response = await fetch(new URL("/generate", handle.url), {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					token: "recommendation-review-token",
+					questionId: "focus",
+					mode: "review",
+				}),
+			});
+			expect(response.status).toBe(200);
+
+			const html = await (await fetch(handle.url)).text();
+			const inlineDataMatch = html.match(/window\.__INTERVIEW_DATA__ = (\{[\s\S]*?\});/);
+			expect(inlineDataMatch?.[1]).toBeTruthy();
+			const bootData = JSON.parse(inlineDataMatch![1]);
+			expect(bootData.questions[0]?.recommended).toBe("Keep current shape");
 		} finally {
 			handle.close();
 		}

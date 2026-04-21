@@ -432,12 +432,41 @@ function ensureQuestionId(
 	return { ok: true, question };
 }
 
-function syncRecommendations(question: Question, options: OptionValue[]): void {
+function normalizeRecommendationMatchText(value: string): string {
+	return value.normalize("NFC").trim();
+}
+
+function resolveRecommendedLabels(
+	recommended: Question["recommended"],
+	options: OptionValue[]
+): string[] {
+	if (!recommended) return [];
 	const optionLabels = options.map((option) => getOptionLabel(option));
+	const labelsByNormalized = new Map<string, string>();
+	for (const label of optionLabels) {
+		const normalized = normalizeRecommendationMatchText(label);
+		if (!normalized || labelsByNormalized.has(normalized)) continue;
+		labelsByNormalized.set(normalized, label);
+	}
+
+	const resolved: string[] = [];
+	for (const candidate of Array.isArray(recommended) ? recommended : [recommended]) {
+		if (typeof candidate !== "string") continue;
+		const match = labelsByNormalized.get(normalizeRecommendationMatchText(candidate));
+		if (match && !resolved.includes(match)) {
+			resolved.push(match);
+		}
+	}
+	return resolved;
+}
+
+function syncRecommendations(question: Question, options: OptionValue[]): void {
 	if (!question.recommended) return;
+	const resolvedRecommended = resolveRecommendedLabels(question.recommended, options);
 
 	if (question.type === "single") {
-		if (typeof question.recommended === "string" && optionLabels.includes(question.recommended)) {
+		if (resolvedRecommended.length > 0) {
+			question.recommended = resolvedRecommended[0];
 			return;
 		}
 		delete question.recommended;
@@ -451,15 +480,12 @@ function syncRecommendations(question: Question, options: OptionValue[]): void {
 		return;
 	}
 
-	const nextRecommended = (Array.isArray(question.recommended)
-		? question.recommended
-		: [question.recommended]).filter((option) => optionLabels.includes(option));
-	if (nextRecommended.length === 0) {
+	if (resolvedRecommended.length === 0) {
 		delete question.recommended;
 		delete question.conviction;
 		return;
 	}
-	question.recommended = nextRecommended;
+	question.recommended = resolvedRecommended;
 }
 
 function makeOptionKey(): string {
@@ -924,9 +950,7 @@ function recommendedIndicatorHtml(q: Question): string {
 }
 
 function savedAnswerItemHtml(text: string, q: Question): string {
-	const recs = Array.isArray(q.recommended)
-		? q.recommended
-		: q.recommended ? [q.recommended] : [];
+	const recs = q.options ? resolveRecommendedLabels(q.recommended, q.options) : [];
 	const indicator = recs.includes(text) ? " " + recommendedIndicatorHtml(q) : "";
 	return escapeHtml(text) + indicator;
 }
