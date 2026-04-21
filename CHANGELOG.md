@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-04-21
+
 ### Added
 - **Option clarifications for plain choice questions**: Plain string single/multi options can now reveal a separate inline `Optional clarification...` field when selected. Submitted and saved choice responses now use structured `{ option, note? }` objects instead of bare strings.
 
