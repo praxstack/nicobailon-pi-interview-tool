@@ -233,6 +233,20 @@ describe("validateQuestions", () => {
 	});
 
 	describe("recommended", () => {
+		it("normalizes single-select option-level recommended flags", () => {
+			const result = validateQuestions(valid({
+				options: [{ label: "A", recommended: true }, { label: "B" }],
+			}));
+			expect(result.questions[0].recommended).toBe("A");
+		});
+
+		it("normalizes multi-select option-level recommended flags", () => {
+			const result = validateQuestions(validMulti({
+				options: [{ label: "X", recommended: true }, { label: "Y" }, { label: "Z", recommended: true }],
+			}));
+			expect(result.questions[0].recommended).toEqual(["X", "Z"]);
+		});
+
 		it("accepts recommended for single-select", () => {
 			const result = validateQuestions(valid({ recommended: "A" }));
 			expect(result.questions[0].recommended).toBe("A");
@@ -288,9 +302,30 @@ describe("validateQuestions", () => {
 				"recommended must be string for single-select"
 			);
 		});
+
+		it("rejects multiple option-level recommendations for single-select", () => {
+			expect(() => validateQuestions(valid({
+				options: [{ label: "A", recommended: true }, { label: "B", recommended: true }],
+			}))).toThrow("exactly one option must be recommended for single-select");
+		});
+
+		it("rejects mixed question-level and option-level recommendations", () => {
+			expect(() => validateQuestions(valid({
+				recommended: "A",
+				options: [{ label: "A", recommended: true }, { label: "B" }],
+			}))).toThrow("use either question-level recommended/conviction or option-level recommended flags, not both");
+		});
 	});
 
 	describe("conviction", () => {
+		it("normalizes option-level conviction", () => {
+			const result = validateQuestions(valid({
+				options: [{ label: "A", recommended: true, conviction: "strong" }, { label: "B" }],
+			}));
+			expect(result.questions[0].recommended).toBe("A");
+			expect(result.questions[0].conviction).toBe("strong");
+		});
+
 		it("accepts strong conviction with recommended", () => {
 			const result = validateQuestions(valid({ recommended: "A", conviction: "strong" }));
 			expect(result.questions[0].conviction).toBe("strong");
@@ -317,6 +352,22 @@ describe("validateQuestions", () => {
 			expect(() => validateQuestions(valid({ recommended: "A", conviction: true }))).toThrow(
 				'conviction must be "strong" or "slight"'
 			);
+		});
+
+		it("rejects option-level conviction without option-level recommended", () => {
+			expect(() => validateQuestions(valid({
+				options: [{ label: "A", conviction: "strong" }, { label: "B" }],
+			}))).toThrow('option "A": conviction requires recommended');
+		});
+
+		it("rejects mixed option-level convictions", () => {
+			expect(() => validateQuestions(validMulti({
+				options: [
+					{ label: "X", recommended: true, conviction: "strong" },
+					{ label: "Y" },
+					{ label: "Z", recommended: true, conviction: "slight" },
+				],
+			}))).toThrow("recommended options must use the same conviction");
 		});
 	});
 

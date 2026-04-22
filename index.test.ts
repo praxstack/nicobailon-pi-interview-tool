@@ -18,7 +18,7 @@ import interviewExtension, {
 	selectGenerateModels,
 	buildAskModelsData,
 } from "./index.js";
-import type { Question } from "./schema.js";
+import { validateQuestions, type Question } from "./schema.js";
 
 describe("selectGenerateModels", () => {
 	const configured = { provider: "anthropic", id: "claude-haiku-4-5" };
@@ -734,6 +734,47 @@ describe("rich option question flows", () => {
 			expect(inlineDataMatch?.[1]).toBeTruthy();
 			const bootData = JSON.parse(inlineDataMatch![1]);
 			expect(bootData.questions[0]?.recommended).toBe("Keep current shape");
+		} finally {
+			handle.close();
+		}
+	});
+
+	it("normalizes option-level recommendations into the browser boot payload", async () => {
+		const handle = await startInterviewServer(
+			{
+				questions: validateQuestions({
+					title: "Option-level recommendations",
+					questions: [
+						{
+							id: "scope",
+							type: "multi",
+							question: "What should we include?",
+							options: [
+								{ label: "Workspace files", recommended: true, conviction: "strong" },
+								{ label: "Ignored files" },
+								{ label: "Build output", recommended: true },
+							],
+						},
+					],
+				}),
+				sessionToken: "option-level-recommendation-token",
+				sessionId: "option-level-recommendation-session",
+				cwd: process.cwd(),
+				timeout: 600,
+			},
+			{
+				onSubmit: () => {},
+				onCancel: () => {},
+			},
+		);
+
+		try {
+			const html = await (await fetch(handle.url)).text();
+			const inlineDataMatch = html.match(/window\.__INTERVIEW_DATA__ = (\{[\s\S]*?\});/);
+			expect(inlineDataMatch?.[1]).toBeTruthy();
+			const bootData = JSON.parse(inlineDataMatch![1]);
+			expect(bootData.questions[0]?.recommended).toEqual(["Workspace files", "Build output"]);
+			expect(bootData.questions[0]?.conviction).toBe("strong");
 		} finally {
 			handle.close();
 		}

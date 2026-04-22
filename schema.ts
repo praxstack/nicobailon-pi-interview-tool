@@ -23,6 +23,8 @@ export type ContentBlock = MarkdownContentBlock | CodeContentBlock;
 export interface RichOption {
 	label: string;
 	content?: ContentBlock;
+	recommended?: boolean;
+	conviction?: "strong" | "slight";
 }
 
 export type OptionValue = string | RichOption;
@@ -73,6 +75,50 @@ export function getOptionLabel(option: OptionValue): string {
 
 export function isRichOption(option: OptionValue): option is RichOption {
 	return typeof option === "object" && option !== null && "label" in option;
+}
+
+function normalizeOptionLevelRecommendations(question: Question): void {
+	if (!question.options) return;
+
+	const recommendedOptions: RichOption[] = [];
+	const convictions = new Set<"strong" | "slight">();
+
+	for (const option of question.options) {
+		if (!isRichOption(option)) continue;
+		if (option.conviction !== undefined && option.recommended !== true) {
+			throw new Error(
+				`Question "${question.id}" option "${option.label}": conviction requires recommended`
+			);
+		}
+		if (option.recommended !== true) continue;
+		recommendedOptions.push(option);
+		if (option.conviction) convictions.add(option.conviction);
+	}
+
+	if (recommendedOptions.length === 0) return;
+
+	if (question.recommended !== undefined || question.conviction !== undefined) {
+		throw new Error(
+			`Question "${question.id}": use either question-level recommended/conviction or option-level recommended flags, not both`
+		);
+	}
+
+	if (question.type === "single" && recommendedOptions.length !== 1) {
+		throw new Error(`Question "${question.id}": exactly one option must be recommended for single-select`);
+	}
+
+	if (convictions.size > 1) {
+		throw new Error(
+			`Question "${question.id}": recommended options must use the same conviction`
+		);
+	}
+
+	const recommendedLabels = recommendedOptions.map((option) => option.label);
+	question.recommended = question.type === "single" ? recommendedLabels[0] : recommendedLabels;
+	const conviction = convictions.values().next().value;
+	if (conviction !== undefined) {
+		question.conviction = conviction;
+	}
 }
 
 function validateMediaBlock(block: unknown, context: string): MediaBlock {
@@ -224,12 +270,18 @@ function validateOption(option: unknown, questionId: string, index: number): Opt
 			);
 		}
 		if (o.content !== undefined) {
-			return {
+			const result: RichOption = {
 				label: o.label,
 				content: validateContentBlock(o.content, `Question "${questionId}" option "${o.label}"`),
 			};
+			if (o.recommended === true) result.recommended = true;
+			if (o.conviction === "strong" || o.conviction === "slight") result.conviction = o.conviction;
+			return result;
 		}
-		return { label: o.label };
+		const result: RichOption = { label: o.label };
+		if (o.recommended === true) result.recommended = true;
+		if (o.conviction === "strong" || o.conviction === "slight") result.conviction = o.conviction;
+		return result;
 	}
 	throw new Error(
 		`Question "${questionId}": option at index ${index} must be a string or object with label`
@@ -354,6 +406,7 @@ export function validateQuestions(data: unknown): QuestionsFile {
 			if (!q.options || q.options.length === 0) {
 				throw new Error(`Question "${q.id}": options required for type "${q.type}"`);
 			}
+			normalizeOptionLevelRecommendations(q);
 		} else if (q.type === "text" || q.type === "image" || q.type === "info") {
 			if (q.options) {
 				throw new Error(`Question "${q.id}": options not allowed for type "${q.type}"`);

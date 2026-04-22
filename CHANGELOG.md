@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+## [0.8.3] - 2026-04-21
+
+### Fixed
+- Option-level `recommended: true` flags on rich option objects now normalize into the interview's canonical question-level recommendation state, so recommended pills, default selections, saved snapshots, and browser boot data stay consistent.
+- Schema validation now rejects conflicting recommendation shapes, including mixed question-level and option-level recommendation sources, invalid option-level conviction usage, and multi-recommendation single-select questions.
+
 ## [0.8.2] - 2026-04-21
 
 ### Fixed
