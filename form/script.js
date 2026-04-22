@@ -556,13 +556,6 @@
     return resolved;
   }
 
-  function questionCanClarifyOption(question) {
-    return (question.type === "single" || question.type === "multi")
-      && Array.isArray(question.options)
-      && question.options.length > 0
-      && question.options.every((option) => typeof option === "string");
-  }
-
   function isChoiceResponseValue(value) {
     return value && typeof value === "object" && !Array.isArray(value) && typeof value.option === "string";
   }
@@ -645,10 +638,6 @@
     )
       .map((input) => input.value)
       .filter((value) => value && value !== "__other__");
-  }
-
-  function syncChoiceNotesWithSelection(question) {
-    if (!questionCanClarifyOption(question)) return;
   }
 
   function isRichOption(option) {
@@ -1436,7 +1425,7 @@
   }
 
   function createOptionNoteInput(question, optionLabel, isSelected) {
-    if (!questionCanClarifyOption(question) || !isSelected) return null;
+    if (!questionSupportsOptionInsights(question) || !isSelected) return null;
 
     const wrap = document.createElement("div");
     wrap.className = "option-note-wrap";
@@ -1491,7 +1480,6 @@
     input.id = `q-${question.id}-${optionIndex}`;
 
     input.addEventListener("change", () => {
-      syncChoiceNotesWithSelection(question);
       debounceSave();
       if (question.type === "multi") {
         updateDoneState(question.id);
@@ -3348,7 +3336,7 @@
         const otherValue = getOtherValue(id).trim();
         return otherValue ? { option: otherValue } : "";
       }
-      const note = questionCanClarifyOption(question) ? getChoiceNote(id, selected.value) : "";
+      const note = questionSupportsOptionInsights(question) ? getChoiceNote(id, selected.value) : "";
       return note ? { option: selected.value, note } : { option: selected.value };
     }
     if (question.type === "multi") {
@@ -3359,7 +3347,7 @@
           const otherValue = getOtherValue(id).trim();
           return otherValue ? { option: otherValue } : null;
         }
-        const note = questionCanClarifyOption(question) ? getChoiceNote(id, input.value) : "";
+        const note = questionSupportsOptionInsights(question) ? getChoiceNote(id, input.value) : "";
         return note ? { option: input.value, note } : { option: input.value };
       }).filter((value) => value && value.option);
     }
@@ -3432,7 +3420,7 @@
           );
           if (input) {
             input.checked = true;
-            if (questionCanClarifyOption(question) && choiceValue.note) {
+            if (questionSupportsOptionInsights(question) && choiceValue.note) {
               setChoiceNote(question.id, choiceValue.option, choiceValue.note);
             }
           } else {
@@ -3469,7 +3457,7 @@
           );
           if (input) {
             input.checked = true;
-            if (questionCanClarifyOption(question) && choiceValue.note) {
+            if (questionSupportsOptionInsights(question) && choiceValue.note) {
               setChoiceNote(question.id, choiceValue.option, choiceValue.note);
             }
           } else if (choiceValue.option) {

@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+## [0.8.4] - 2026-04-22
+
+### Fixed
+- Rich-option clarification fields now appear for selected single/multi options with inline content blocks instead of being incorrectly hidden behind the old plain-string-only gate.
+- Option-level recommendation normalization now strips temporary option-level recommendation metadata after canonicalizing to question-level `recommended` and `conviction`, so saved snapshots and revalidation do not fail on reload.
+- Removed a dead choice-note sync hook and simplified clarification gating to reuse the existing option-support helper, keeping the client logic aligned with the rest of the file.
+- README clarification docs now match the shipped behavior and no longer claim the inline note field is limited to plain-string options.
+
 ## [0.8.3] - 2026-04-21
 
 ### Fixed

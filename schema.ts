@@ -82,9 +82,11 @@ function normalizeOptionLevelRecommendations(question: Question): void {
 
 	const recommendedOptions: RichOption[] = [];
 	const convictions = new Set<"strong" | "slight">();
+	const richOptions: RichOption[] = [];
 
 	for (const option of question.options) {
 		if (!isRichOption(option)) continue;
+		richOptions.push(option);
 		if (option.conviction !== undefined && option.recommended !== true) {
 			throw new Error(
 				`Question "${question.id}" option "${option.label}": conviction requires recommended`
@@ -111,6 +113,11 @@ function normalizeOptionLevelRecommendations(question: Question): void {
 		throw new Error(
 			`Question "${question.id}": recommended options must use the same conviction`
 		);
+	}
+
+	for (const option of richOptions) {
+		delete option.recommended;
+		delete option.conviction;
 	}
 
 	const recommendedLabels = recommendedOptions.map((option) => option.label);

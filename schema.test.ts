@@ -238,6 +238,7 @@ describe("validateQuestions", () => {
 				options: [{ label: "A", recommended: true }, { label: "B" }],
 			}));
 			expect(result.questions[0].recommended).toBe("A");
+			expect(result.questions[0].options).toEqual([{ label: "A" }, { label: "B" }]);
 		});
 
 		it("normalizes multi-select option-level recommended flags", () => {
@@ -245,6 +246,14 @@ describe("validateQuestions", () => {
 				options: [{ label: "X", recommended: true }, { label: "Y" }, { label: "Z", recommended: true }],
 			}));
 			expect(result.questions[0].recommended).toEqual(["X", "Z"]);
+			expect(result.questions[0].options).toEqual([{ label: "X" }, { label: "Y" }, { label: "Z" }]);
+		});
+
+		it("keeps normalized option-level recommendations revalidatable", () => {
+			const first = validateQuestions(valid({
+				options: [{ label: "A", recommended: true, conviction: "strong" }, { label: "B" }],
+			}));
+			expect(() => validateQuestions(structuredClone(first))).not.toThrow();
 		});
 
 		it("accepts recommended for single-select", () => {

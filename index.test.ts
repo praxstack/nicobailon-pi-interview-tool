@@ -457,6 +457,12 @@ describe("tool registration", () => {
 });
 
 describe("rich option question flows", () => {
+	it("shows clarification fields for rich-option questions too", () => {
+		const clientSource = readFileSync("form/script.js", "utf-8");
+		expect(clientSource).toContain("questionSupportsOptionInsights(question) || !isSelected");
+		expect(clientSource).not.toContain('question.options.every((option) => typeof option === "string")');
+	});
+
 	it("saves structured choice notes into the snapshot HTML", async () => {
 		const snapshotDir = mkdtempSync(join(tmpdir(), "pi-interview-choice-note-"));
 		const handle = await startInterviewServer(
@@ -468,7 +474,10 @@ describe("rich option question flows", () => {
 							id: "framework",
 							type: "single",
 							question: "Framework?",
-							options: ["React", "Vue"],
+							options: [
+								{ label: "React", content: { source: "Use the React app shell.", lang: "md" } },
+								{ label: "Vue", content: { source: "Ship a smaller Vue surface.", lang: "md" } },
+							],
 						},
 					],
 				},
