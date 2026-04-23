@@ -437,8 +437,11 @@ describe("content rendering styles", () => {
 
 	it("keeps deselected clarification drafts across option rerenders", () => {
 		const clientSource = readFileSync("form/script.js", "utf-8");
-		expect(clientSource).toContain("populateForm({ [question.id]: value }, { preserveChoiceNotes: true });");
-		expect(clientSource).toContain("if (!preserveChoiceNotes) {\n          clearChoiceNotes(question.id);\n        }");
+		expect(clientSource).toContain("populateQuestion(question, { [question.id]: value }, { preserveChoiceNotes: true });");
+		expect(clientSource).toContain("function populateQuestion(question, saved, options = {})");
+		expect(clientSource).toContain("if (!hasSavedValue) return;");
+		expect(clientSource).toContain("if (!preserveChoiceNotes) {\n        clearChoiceNotes(question.id);\n      }");
+		expect(clientSource).toContain("questions.forEach((question) => {\n      populateQuestion(question, saved, options);\n    });");
 	});
 
 	it("preserves FileReader error details when upload encoding fails", () => {

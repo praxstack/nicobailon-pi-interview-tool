@@ -2,10 +2,15 @@
 
 ## [Unreleased]
 
+## [0.8.6] - 2026-04-22
+
+### Fixed
+- Migrated extension tool schemas from `@sinclair/typebox` to `typebox` 1.x so packaged installs follow Pi's current extension runtime contract.
+- Choice-question rerenders now restore only the question being updated instead of clearing every single/multi selection in the form. This fixes the lingering radio-group bug where picking an option in one question could wipe answers from earlier questions and made submitted payloads look incomplete to the agent.
+
 ## [0.8.5] - 2026-04-22
 
 ### Fixed
-- Switched the extension's TypeBox import to `typebox` so source-loaded installs no longer depend on Pi's legacy `@sinclair/typebox` alias path during stale-session `/reload`.
 - Radio selections now draw their checked state directly on the input element instead of relying on a `::before` pseudo-element, which makes selected single-choice answers render reliably in the native macOS interview window.
 
 ### Changed

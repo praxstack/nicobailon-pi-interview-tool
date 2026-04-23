@@ -930,7 +930,7 @@
   }
 
   function applyQuestionValue(question, value) {
-    populateForm({ [question.id]: value }, { preserveChoiceNotes: true });
+    populateQuestion(question, { [question.id]: value }, { preserveChoiceNotes: true });
     if (question.type === "multi") {
       updateDoneState(question.id);
     }
@@ -3395,76 +3395,34 @@
     return value.map((item) => normalizeChoiceResponseValue(item)).filter(Boolean);
   }
 
-  function populateForm(saved, options = {}) {
+  function populateQuestion(question, saved, options = {}) {
     const { preserveChoiceNotes = false } = options;
-    if (!saved) return;
-    questions.forEach((question) => {
-      const hasSavedValue = Object.prototype.hasOwnProperty.call(saved, question.id);
-      const value = saved[question.id];
-      if (question.type === "single") {
-        const radios = formEl.querySelectorAll(
-          `input[name="${escapeSelector(question.id)}"]`
-        );
-        radios.forEach((radio) => {
-          radio.checked = false;
-        });
-        if (!preserveChoiceNotes) {
-          clearChoiceNotes(question.id);
-        }
-        if (!hasSavedValue) return;
-        const choiceValue = getSavedSingleChoiceValue(value);
-        if (!choiceValue) return;
-        if (choiceValue.option !== "") {
-          const input = formEl.querySelector(
-            `input[name="${escapeSelector(question.id)}"][value="${escapeSelector(choiceValue.option)}"]`
-          );
-          if (input) {
-            input.checked = true;
-            if (questionSupportsOptionInsights(question) && choiceValue.note) {
-              setChoiceNote(question.id, choiceValue.option, choiceValue.note);
-            }
-          } else {
-            const otherCheck = formEl.querySelector(
-              `input[name="${escapeSelector(question.id)}"][value="__other__"]`
-            );
-            const otherInput = formEl.querySelector(
-              `.other-input[data-question-id="${escapeSelector(question.id)}"]`
-            );
-            if (otherCheck && otherInput) {
-              otherCheck.checked = true;
-              otherInput.value = choiceValue.option;
-              otherInput.dispatchEvent(new Event("input", { bubbles: true }));
-            }
-          }
-        }
+    const hasSavedValue = saved && Object.prototype.hasOwnProperty.call(saved, question.id);
+    const value = hasSavedValue ? saved[question.id] : undefined;
+
+    if (question.type === "single") {
+      if (!hasSavedValue) return;
+      const radios = formEl.querySelectorAll(
+        `input[name="${escapeSelector(question.id)}"]`
+      );
+      radios.forEach((radio) => {
+        radio.checked = false;
+      });
+      if (!preserveChoiceNotes) {
+        clearChoiceNotes(question.id);
       }
-      if (question.type === "multi") {
-        const checkboxes = formEl.querySelectorAll(
-          `input[name="${escapeSelector(question.id)}"]`
+      const choiceValue = getSavedSingleChoiceValue(value);
+      if (!choiceValue) return;
+      if (choiceValue.option !== "") {
+        const input = formEl.querySelector(
+          `input[name="${escapeSelector(question.id)}"][value="${escapeSelector(choiceValue.option)}"]`
         );
-        checkboxes.forEach((checkbox) => {
-          checkbox.checked = false;
-        });
-        if (!preserveChoiceNotes) {
-          clearChoiceNotes(question.id);
-        }
-        if (!hasSavedValue) return;
-        const choiceValues = getSavedMultiChoiceValues(value);
-        let otherValue = "";
-        choiceValues.forEach((choiceValue) => {
-          const input = formEl.querySelector(
-            `input[name="${escapeSelector(question.id)}"][value="${escapeSelector(choiceValue.option)}"]`
-          );
-          if (input) {
-            input.checked = true;
-            if (questionSupportsOptionInsights(question) && choiceValue.note) {
-              setChoiceNote(question.id, choiceValue.option, choiceValue.note);
-            }
-          } else if (choiceValue.option) {
-            otherValue = choiceValue.option;
+        if (input) {
+          input.checked = true;
+          if (questionSupportsOptionInsights(question) && choiceValue.note) {
+            setChoiceNote(question.id, choiceValue.option, choiceValue.note);
           }
-        });
-        if (otherValue) {
+        } else {
           const otherCheck = formEl.querySelector(
             `input[name="${escapeSelector(question.id)}"][value="__other__"]`
           );
@@ -3473,17 +3431,68 @@
           );
           if (otherCheck && otherInput) {
             otherCheck.checked = true;
-            otherInput.value = otherValue;
+            otherInput.value = choiceValue.option;
             otherInput.dispatchEvent(new Event("input", { bubbles: true }));
           }
         }
       }
-      if (question.type === "text" && typeof value === "string") {
-        const textarea = formEl.querySelector(
-          `textarea[data-question-id="${escapeSelector(question.id)}"]`
-        );
-        if (textarea) textarea.value = value;
+      return;
+    }
+
+    if (question.type === "multi") {
+      if (!hasSavedValue) return;
+      const checkboxes = formEl.querySelectorAll(
+        `input[name="${escapeSelector(question.id)}"]`
+      );
+      checkboxes.forEach((checkbox) => {
+        checkbox.checked = false;
+      });
+      if (!preserveChoiceNotes) {
+        clearChoiceNotes(question.id);
       }
+      const choiceValues = getSavedMultiChoiceValues(value);
+      let otherValue = "";
+      choiceValues.forEach((choiceValue) => {
+        const input = formEl.querySelector(
+          `input[name="${escapeSelector(question.id)}"][value="${escapeSelector(choiceValue.option)}"]`
+        );
+        if (input) {
+          input.checked = true;
+          if (questionSupportsOptionInsights(question) && choiceValue.note) {
+            setChoiceNote(question.id, choiceValue.option, choiceValue.note);
+          }
+        } else if (choiceValue.option) {
+          otherValue = choiceValue.option;
+        }
+      });
+      if (otherValue) {
+        const otherCheck = formEl.querySelector(
+          `input[name="${escapeSelector(question.id)}"][value="__other__"]`
+        );
+        const otherInput = formEl.querySelector(
+          `.other-input[data-question-id="${escapeSelector(question.id)}"]`
+        );
+        if (otherCheck && otherInput) {
+          otherCheck.checked = true;
+          otherInput.value = otherValue;
+          otherInput.dispatchEvent(new Event("input", { bubbles: true }));
+        }
+      }
+      return;
+    }
+
+    if (question.type === "text" && hasSavedValue && typeof value === "string") {
+      const textarea = formEl.querySelector(
+        `textarea[data-question-id="${escapeSelector(question.id)}"]`
+      );
+      if (textarea) textarea.value = value;
+    }
+  }
+
+  function populateForm(saved, options = {}) {
+    if (!saved) return;
+    questions.forEach((question) => {
+      populateQuestion(question, saved, options);
     });
   }
 

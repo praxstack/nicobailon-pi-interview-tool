@@ -1,6 +1,6 @@
 {
   "name": "pi-interview",
-  "version": "0.8.5",
+  "version": "0.8.6",
   "description": "Interactive interview form extension for pi coding agent",
   "author": "Nico Bailon",
   "license": "MIT",
@@ -32,6 +32,9 @@
   "scripts": {
     "test": "vitest run"
   },
+  "dependencies": {
+    "typebox": "^1.1.24"
+  },
   "pi": {
     "extensions": [
       "./index.ts"
@@ -39,8 +42,5 @@
   },
   "devDependencies": {
     "vitest": "^4.0.18"
-  },
-  "dependencies": {
-    "typebox": "^1.1.31"
   }
 }
