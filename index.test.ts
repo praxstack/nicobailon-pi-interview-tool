@@ -422,6 +422,9 @@ describe("content rendering styles", () => {
 		expect(styles).toMatch(/\.option-item-label \{[^}]*align-items: center;/s);
 		expect(styles).toMatch(/input\[type="radio"\],\s*input\[type="checkbox"\] \{[^}]*margin-top: 2px;/s);
 		expect(styles).toContain(".option-note-input");
+		expect(styles).toContain("background-image: radial-gradient(circle, var(--accent) 0 45%, transparent 55%);");
+		expect(styles).toContain("input[type=\"radio\"]:checked {");
+		expect(styles).not.toContain("input[type=\"radio\"]::before");
 	});
 
 	it("preserves structured choice answers across option rewrites and review", () => {

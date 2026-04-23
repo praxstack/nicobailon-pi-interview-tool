@@ -2,6 +2,15 @@
 
 ## [Unreleased]
 
+## [0.8.5] - 2026-04-22
+
+### Fixed
+- Switched the extension's TypeBox import to `typebox` so source-loaded installs no longer depend on Pi's legacy `@sinclair/typebox` alias path during stale-session `/reload`.
+- Radio selections now draw their checked state directly on the input element instead of relying on a `::before` pseudo-element, which makes selected single-choice answers render reliably in the native macOS interview window.
+
+### Changed
+- Removed the repo `package-lock.json` because this package ships as a library package and the lockfile was only adding stale dependency metadata without affecting published runtime installs.
+
 ## [0.8.4] - 2026-04-22
 
 ### Fixed
